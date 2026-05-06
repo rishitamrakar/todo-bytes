@@ -72,6 +72,8 @@ class Task:
     due: Optional[datetime] = None
     tags: list[str] = field(default_factory=list)
     project: Optional[str] = None
+    description: Optional[str] = None
+    notes: Optional[str] = None
     created: datetime = field(default_factory=datetime.now)
     done_at: Optional[datetime] = None
 
@@ -85,6 +87,7 @@ class Task:
 
         - Old `due` (plain date) becomes end-of-day datetime.
         - Old `status: open` becomes `todo` (auto-migration).
+        - description / notes default to None for older yaml without them.
         """
         return cls(
             id=int(raw["id"]),
@@ -94,6 +97,8 @@ class Task:
             due=coerce_due(raw.get("due")),
             tags=list(raw.get("tags") or []),
             project=raw.get("project"),
+            description=raw.get("description"),
+            notes=raw.get("notes"),
             created=raw.get("created") or datetime.now(),
             done_at=raw.get("done_at"),
         )

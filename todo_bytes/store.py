@@ -193,6 +193,8 @@ def add_task(
     name: str = "",
     due=None,
     tags: Optional[list[str]] = None,
+    description: Optional[str] = None,
+    notes: Optional[str] = None,
     config: Config | None = None,
     *,
     project_name: Optional[str] = None,
@@ -200,8 +202,7 @@ def add_task(
     """Append a new task to a project. Returns the created Task.
 
     `task.project` is auto-set to the parent project's name — it is no
-    longer a free-form user input. (Future: a 'move task to another project'
-    flow can change it via update_task.)
+    longer a free-form user input.
     """
     target = project_name or list_name
     if not target:
@@ -215,6 +216,8 @@ def add_task(
         due=due,
         tags=tags or [],
         project=target,  # auto-set
+        description=description,
+        notes=notes,
         created=datetime.now(),
         done_at=None,
     )
@@ -281,7 +284,7 @@ def list_summary(list_name: str, config: Config | None = None) -> dict:
 
 # ---------- internals ----------
 
-ALLOWED_TASK_FIELDS = {"name", "due", "tags", "project", "priority", "status", "done_at"}
+ALLOWED_TASK_FIELDS = {"name", "due", "tags", "project", "priority", "status", "done_at", "description", "notes"}
 ALLOWED_PROJECT_FIELDS = {"description", "status", "due", "tags"}
 
 

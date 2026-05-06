@@ -290,6 +290,7 @@ def add_cmd(
     due: Optional[str] = typer.Option(None, "--due", "-d", help="today, tomorrow, weekday, YYYY-MM-DD, or YYYY-MM-DDTHH:MM"),
     tag: list[str] = typer.Option(None, "--tag", "-t", help="Tag (repeatable)."),
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Project to add the task to. Defaults to the configured default project."),
+    description: Optional[str] = typer.Option(None, "--description", help="Short description / context for the task."),
 ):
     """Add a new task."""
     config = _load_config_or_exit()
@@ -301,6 +302,7 @@ def add_cmd(
             name=name,
             due=due_date,
             tags=tag or [],
+            description=description,
             config=config,
         )
     except ListNotFoundError as err:
@@ -396,13 +398,14 @@ def edit_cmd(
     due: Optional[str] = typer.Option(None, "--due", "-d", help="today, tomorrow, weekday, YYYY-MM-DD, YYYY-MM-DDTHH:MM, or 'clear' to remove"),
     tag: Optional[list[str]] = typer.Option(None, "--tag", "-t", help="Replaces existing tags. Use 'clear' to remove all."),
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Which project the task lives in. Defaults to the configured default project."),
+    description: Optional[str] = typer.Option(None, "--description", help="Short description. Use 'clear' to remove."),
 ):
     """Edit fields on an existing task."""
     config = _load_config_or_exit()
     target_project = _resolve_list(project, config)
-    fields = _build_edit_fields(name=name, due=due, tag=tag)
+    fields = _build_edit_fields(name=name, due=due, tag=tag, description=description)
     if not fields:
-        _exit_with_error("Nothing to edit. Pass --name, --due, or --tag.")
+        _exit_with_error("Nothing to edit. Pass --name, --due, --tag, or --description.")
     try:
         task = update_task(target_project, task_id, config=config, **fields)
     except (ListNotFoundError, TaskNotFoundError) as err:
@@ -509,10 +512,11 @@ def _build_edit_fields(
     name: Optional[str],
     due: Optional[str],
     tag: Optional[list[str]],
+    description: Optional[str] = None,
 ) -> dict:
     """Build the kwargs dict for update_task from CLI options.
 
-    'clear' is a magic value to remove a field (None for due, [] for tags).
+    'clear' is a magic value to remove a field (None for due/description, [] for tags).
     """
     fields: dict = {}
     if name is not None:
@@ -521,6 +525,8 @@ def _build_edit_fields(
         fields["due"] = None if due.lower() == "clear" else _parse_due_or_exit(due)
     if tag is not None:
         fields["tags"] = [] if tag == ["clear"] else list(tag)
+    if description is not None:
+        fields["description"] = None if description.lower() == "clear" else description
     return fields
 
 
@@ -573,6 +579,8 @@ def _render_task_details(task: Task) -> Table:
     table.add_row("due", _format_due(task.due))
     table.add_row("tags", ", ".join(task.tags) if task.tags else "")
     table.add_row("project", task.project or "")
+    table.add_row("description", task.description or "")
+    table.add_row("notes", task.notes or "")
     table.add_row("created", str(task.created))
     table.add_row("done_at", str(task.done_at) if task.done_at else "")
     return table

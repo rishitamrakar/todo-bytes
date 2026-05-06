@@ -32,6 +32,8 @@ class CreateTaskRequest(BaseModel):
     name: str
     due: Optional[datetime] = None
     tags: list[str] = []
+    description: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class UpdateTaskRequest(BaseModel):
@@ -41,6 +43,8 @@ class UpdateTaskRequest(BaseModel):
     project: Optional[str] = None
     priority: Optional[int] = None
     status: Optional[StatusLiteral] = None
+    description: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class ReorderRequest(BaseModel):
@@ -154,6 +158,8 @@ def _register_task_routes(app: FastAPI) -> None:
                 name=payload.name,
                 due=payload.due,
                 tags=payload.tags,
+                description=payload.description,
+                notes=payload.notes,
                 config=config,
             )
         except store.ListNotFoundError as err:

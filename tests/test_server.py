@@ -156,6 +156,34 @@ def test_get_lists_includes_project_tags(client: TestClient):
     assert work["tags"] == ["work"]
 
 
+# ---------- task description + notes ----------
+
+def test_create_task_with_description_and_notes(client: TestClient):
+    payload = {
+        "list": "work",
+        "name": "big task",
+        "description": "Auth bug from PR #234",
+        "notes": "- looked at module X\n- found root cause\n- testing fix",
+    }
+    response = client.post("/api/tasks", json=payload)
+    assert response.status_code == 201
+    body = response.json()
+    assert body["description"] == "Auth bug from PR #234"
+    assert "root cause" in body["notes"]
+
+
+def test_patch_task_updates_description_and_notes(client: TestClient):
+    client.post("/api/tasks", json={"list": "work", "name": "x"})
+    response = client.patch(
+        "/api/tasks/work/1",
+        json={"description": "updated", "notes": "- a\n- b"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["description"] == "updated"
+    assert body["notes"] == "- a\n- b"
+
+
 # ---------- POST /api/tasks ----------
 
 def test_create_task_minimal(client: TestClient):

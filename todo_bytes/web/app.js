@@ -21,9 +21,17 @@ const state = {
   visibleStatuses: new Set(['todo', 'in-progress']),
   visibleTags: new Set(),  // populated from current projects on each refresh
   showUntagged: true,
+  // Pending state — only mutated while a filter panel is open.
+  // Committed to the visible* state on Apply, discarded on Cancel.
+  pending: {
+    statuses: null,
+    tags: null,
+    showUntagged: null,
+  },
 };
 
 const ALL_PROJECTS = '__all__';
+const ALL_STATUS_VALUES = ['todo', 'in-progress', 'done', 'hold', 'cancelled'];
 
 
 // ---------- api ----------
@@ -116,8 +124,13 @@ function renderTagFilter() {
   const allTags = collectAllTags();
   const hasUntagged = state.lists.some(p => !p.tags || p.tags.length === 0);
 
-  allTags.forEach(tag => el.appendChild(buildTagCheckbox(tag, state.visibleTags.has(tag))));
-  if (hasUntagged) el.appendChild(buildUntaggedCheckbox());
+  // Render from pending state if the panel is open, else from actual state.
+  // (Tag filter is dynamic so we always re-render rather than just sync.)
+  const tagSet = state.pending.tags !== null ? state.pending.tags : state.visibleTags;
+  const showUntagged = state.pending.showUntagged !== null ? state.pending.showUntagged : state.showUntagged;
+
+  allTags.forEach(tag => el.appendChild(buildTagCheckbox(tag, tagSet.has(tag))));
+  if (hasUntagged) el.appendChild(buildUntaggedCheckbox(showUntagged));
   if (allTags.length === 0 && !hasUntagged) {
     el.innerHTML = '<div style="color: var(--text-dim); font-size: 12px;">No tags yet. Add tags via project edit.</div>';
   }
@@ -136,23 +149,23 @@ function buildTagCheckbox(tag, checked) {
   cb.checked = checked;
   cb.dataset.tag = tag;
   cb.addEventListener('change', () => {
-    if (cb.checked) state.visibleTags.add(tag);
-    else state.visibleTags.delete(tag);
-    renderLists();
+    if (state.pending.tags === null) return;  // panel not open
+    if (cb.checked) state.pending.tags.add(tag);
+    else state.pending.tags.delete(tag);
   });
   lbl.appendChild(cb);
   lbl.appendChild(document.createTextNode(' ' + tag));
   return lbl;
 }
 
-function buildUntaggedCheckbox() {
+function buildUntaggedCheckbox(checked) {
   const lbl = document.createElement('label');
   const cb = document.createElement('input');
   cb.type = 'checkbox';
-  cb.checked = state.showUntagged;
+  cb.checked = checked;
   cb.addEventListener('change', () => {
-    state.showUntagged = cb.checked;
-    renderLists();
+    if (state.pending.showUntagged === null) return;  // panel not open
+    state.pending.showUntagged = cb.checked;
   });
   lbl.appendChild(cb);
   const span = document.createElement('span');
@@ -227,10 +240,14 @@ function buildTaskRow(task) {
   // In the All view, show project as a badge so user knows where each task is from.
   // In a single-project view, the project is implicit — hide the badge.
   const showProjectBadge = state.activeList === ALL_PROJECTS;
+  const hasContent = (task.description && task.description.trim()) || (task.notes && task.notes.trim());
   li.innerHTML = `
     <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
     <button class="status-circle" data-action="toggle-done" title="${statusTitle(task.status)}"></button>
-    <span class="task-name">${escape(task.name)}</span>
+    <span class="task-name">
+      ${escape(task.name)}
+      ${hasContent ? '<span class="has-content" title="Has description / notes" data-action="edit">📄</span>' : ''}
+    </span>
     <span class="due ${dueClass(task.due)}">${formatDue(task.due)}</span>
     <span class="tags">${(task.tags || []).map(t => `<span class="tag">${escape(t)}</span>`).join('')}</span>
     <span>${showProjectBadge && task.project ? `<span class="project-badge">${escape(task.project)}</span>` : ''}</span>
@@ -366,7 +383,7 @@ function switchView(view) {
 
 function updateListTitle() {
   const title = state.activeList === ALL_PROJECTS
-    ? `All visible (${visibleProjects().length} projects)`
+    ? `All Projects (${visibleProjects().length} of ${state.lists.length})`
     : (state.activeList || '—');
   document.getElementById('list-title').textContent = title;
 }
@@ -437,48 +454,104 @@ async function handleNewProjectSubmit(event) {
 }
 
 
-// ---------- sidebar filters (status + projects) ----------
+// ---------- sidebar filters (status + tags) ----------
+//
+// Pending-apply model: opening a panel snapshots current state into
+// state.pending. Checkboxes / Select all / Deselect all only mutate the
+// pending state. The actual filter doesn't change until the user clicks
+// Apply. Cancel (or closing the panel) discards.
 
-function toggleFilterPanel(panelId, chipId) {
-  const panel = document.getElementById(panelId);
-  const chip = document.getElementById(chipId);
-  const opening = panel.hidden;
-  // Close all panels first (only one open at a time)
+function openFilterPanel(target) {
+  closeAllFilterPanels();
+  if (target === 'status') {
+    state.pending.statuses = new Set(state.visibleStatuses);
+    syncStatusCheckboxesFromPending();
+  } else if (target === 'tag') {
+    state.pending.tags = new Set(state.visibleTags);
+    state.pending.showUntagged = state.showUntagged;
+    renderTagFilter();  // renders from pending state
+  }
+  document.getElementById(`${target}-filter`).hidden = false;
+  document.getElementById(`${target}-filter-btn`).classList.add('active');
+}
+
+function toggleFilterPanel(target) {
+  const panel = document.getElementById(`${target}-filter`);
+  if (panel.hidden) openFilterPanel(target);
+  else closeAllFilterPanels();  // clicking the active chip closes (= cancel)
+}
+
+function closeAllFilterPanels() {
   document.querySelectorAll('.filter-panel').forEach(p => p.hidden = true);
   document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
-  if (opening) {
-    panel.hidden = false;
-    chip.classList.add('active');
+  // Clear any pending state — closing without Apply discards
+  state.pending.statuses = null;
+  state.pending.tags = null;
+  state.pending.showUntagged = null;
+}
+
+function handleStatusCheckboxChange(event) {
+  const cb = event.target;
+  if (cb.tagName !== 'INPUT') return;
+  if (state.pending.statuses === null) return;  // panel not open
+  const status = cb.dataset.status;
+  if (cb.checked) state.pending.statuses.add(status);
+  else state.pending.statuses.delete(status);
+}
+
+function syncStatusCheckboxesFromPending() {
+  document.querySelectorAll('#status-filter input[type=checkbox]').forEach(cb => {
+    cb.checked = state.pending.statuses.has(cb.dataset.status);
+  });
+}
+
+function handleFilterAction(event) {
+  const btn = event.target.closest('button[data-action]');
+  if (!btn) return;
+  const action = btn.dataset.action;
+  const target = btn.dataset.target;
+  if (action === 'apply') applyFilter(target);
+  else if (action === 'cancel') closeAllFilterPanels();
+  else if (action === 'select-all') selectAllInPending(target);
+  else if (action === 'deselect-all') deselectAllInPending(target);
+}
+
+function selectAllInPending(target) {
+  if (target === 'status') {
+    state.pending.statuses = new Set(ALL_STATUS_VALUES);
+    syncStatusCheckboxesFromPending();
+  } else if (target === 'tag') {
+    state.pending.tags = new Set(collectAllTags());
+    state.pending.showUntagged = true;
+    renderTagFilter();
   }
 }
 
-function handleStatusFilterChange(event) {
-  const cb = event.target;
-  if (cb.tagName !== 'INPUT') return;
-  const status = cb.dataset.status;
-  if (cb.checked) state.visibleStatuses.add(status);
-  else state.visibleStatuses.delete(status);
-  renderLists();
+function deselectAllInPending(target) {
+  if (target === 'status') {
+    state.pending.statuses = new Set();
+    syncStatusCheckboxesFromPending();
+  } else if (target === 'tag') {
+    state.pending.tags = new Set();
+    state.pending.showUntagged = false;
+    renderTagFilter();
+  }
 }
 
-function selectAllStatuses() {
-  state.visibleStatuses = new Set(['todo', 'in-progress', 'done', 'hold', 'cancelled']);
-  document.querySelectorAll('#status-filter input[type=checkbox]').forEach(cb => cb.checked = true);
+function applyFilter(target) {
+  if (target === 'status' && state.pending.statuses !== null) {
+    state.visibleStatuses = state.pending.statuses;
+  } else if (target === 'tag' && state.pending.tags !== null) {
+    state.visibleTags = state.pending.tags;
+    state.showUntagged = state.pending.showUntagged;
+  }
+  closeAllFilterPanels();
   renderLists();
-}
-
-function selectAllTags() {
-  state.visibleTags = new Set(collectAllTags());
-  state.showUntagged = true;
-  renderTagFilter();
-  renderLists();
-}
-
-function deselectAllTags() {
-  state.visibleTags.clear();
-  state.showUntagged = false;
-  renderTagFilter();
-  renderLists();
+  // If the active project is now filtered out, fall back to All Projects view
+  if (state.activeList && state.activeList !== ALL_PROJECTS) {
+    const stillVisible = visibleProjects().some(p => p.name === state.activeList);
+    if (!stillVisible) switchToAllProjects();
+  }
 }
 
 
@@ -562,6 +635,8 @@ function fillTaskForm(task) {
   form.elements.due_time.value = dueTime;
   form.elements.tags.value = (task.tags || []).join(', ');
   form.elements.status.value = task.status || 'todo';
+  form.elements.description.value = task.description || '';
+  form.elements.notes.value = task.notes || '';
   document.getElementById('meta-project').textContent = task.project || '—';
   document.getElementById('meta-created').textContent = task.created || '—';
 }
@@ -591,6 +666,8 @@ function readTaskForm(form) {
     due: combineDateTimeToIso(form.elements.due_date.value, form.elements.due_time.value),
     tags,
     status: form.elements.status.value,
+    description: form.elements.description.value.trim() || null,
+    notes: form.elements.notes.value || null,  // preserve newlines
     // project intentionally omitted — it's auto-set to the parent project
   };
 }
@@ -690,17 +767,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Inline new-project form (sidebar)
   document.getElementById('new-project-form').addEventListener('submit', handleNewProjectSubmit);
 
-  // Sidebar filters
-  document.getElementById('status-filter-btn').addEventListener('click',
-    () => toggleFilterPanel('status-filter', 'status-filter-btn'));
-  document.getElementById('tag-filter-btn').addEventListener('click',
-    () => toggleFilterPanel('tag-filter', 'tag-filter-btn'));
-  document.getElementById('status-filter').addEventListener('change', handleStatusFilterChange);
-  document.getElementById('status-all-btn').addEventListener('click', selectAllStatuses);
-  document.getElementById('tag-all-btn').addEventListener('click', selectAllTags);
-  document.getElementById('tag-none-btn').addEventListener('click', deselectAllTags);
+  // Sidebar filters — chips toggle panels; panel buttons handle actions
+  document.getElementById('status-filter-btn').addEventListener('click', () => toggleFilterPanel('status'));
+  document.getElementById('tag-filter-btn').addEventListener('click', () => toggleFilterPanel('tag'));
+  document.getElementById('status-filter').addEventListener('change', handleStatusCheckboxChange);
+  document.getElementById('status-filter').addEventListener('click', handleFilterAction);
+  document.getElementById('tag-filter').addEventListener('click', handleFilterAction);
 
-  // 'All visible' button at the top of the sidebar
+  // 'All Projects' button at the top of the sidebar
   document.getElementById('all-projects-btn').addEventListener('click', switchToAllProjects);
 
   // Project edit modal
