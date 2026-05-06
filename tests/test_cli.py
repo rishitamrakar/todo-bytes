@@ -309,3 +309,141 @@ def test_task_commands_fail_without_init(fake_home: Path, runner: CliRunner):
     result = runner.invoke(app, ["add", "x"])
     assert result.exit_code == 1
     assert "todo init" in result.stdout
+
+
+# ---------- list management commands ----------
+
+def test_lists_show_when_only_default(ready_to_use, runner: CliRunner):
+    result = runner.invoke(app, ["lists", "show"])
+    assert result.exit_code == 0
+    assert "work" in result.stdout
+
+
+def test_lists_create_then_show(ready_to_use, runner: CliRunner):
+    result = runner.invoke(app, ["lists", "create", "personal"])
+    assert result.exit_code == 0
+    assert "personal" in result.stdout
+    listing = runner.invoke(app, ["lists", "show"])
+    assert "personal" in listing.stdout
+    assert "work" in listing.stdout
+
+
+def test_lists_create_rejects_duplicate(ready_to_use, runner: CliRunner):
+    result = runner.invoke(app, ["lists", "create", "work"])
+    assert result.exit_code == 1
+    assert "already exists" in result.stdout
+
+
+def test_lists_delete_with_yes_flag(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["lists", "create", "personal"])
+    result = runner.invoke(app, ["lists", "delete", "personal", "--yes"])
+    assert result.exit_code == 0
+    assert "Deleted" in result.stdout
+
+
+def test_lists_delete_refuses_default(ready_to_use, runner: CliRunner):
+    result = runner.invoke(app, ["lists", "delete", "work", "--yes"])
+    assert result.exit_code == 1
+    assert "default list" in result.stdout
+
+
+def test_lists_delete_confirms_when_no_yes(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["lists", "create", "personal"])
+    # Simulate user pressing Enter (defaults to No)
+    result = runner.invoke(app, ["lists", "delete", "personal"], input="\n")
+    assert result.exit_code == 1
+    assert "Aborted" in result.stdout
+
+
+def test_lists_delete_missing(ready_to_use, runner: CliRunner):
+    result = runner.invoke(app, ["lists", "delete", "nonexistent", "--yes"])
+    assert result.exit_code == 1
+    assert "not found" in result.stdout.lower()
+
+
+# ---------- todo use ----------
+
+def test_use_switches_default_list(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["lists", "create", "personal"])
+    result = runner.invoke(app, ["use", "personal"])
+    assert result.exit_code == 0
+    assert cfg.load_config().default_list == "personal"
+
+
+def test_use_rejects_missing_list(ready_to_use, runner: CliRunner):
+    result = runner.invoke(app, ["use", "nonexistent"])
+    assert result.exit_code == 1
+    assert "does not exist" in result.stdout
+    assert "todo lists create" in result.stdout
+    # default list should be unchanged
+    assert cfg.load_config().default_list == "work"
+
+
+# ---------- --list flag on task commands ----------
+
+def test_add_with_list_flag(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["lists", "create", "personal"])
+    result = runner.invoke(app, ["add", "personal task", "--list", "personal"])
+    assert result.exit_code == 0
+    work_tasks = store.load_tasks("work", cfg.load_config())
+    personal_tasks = store.load_tasks("personal", cfg.load_config())
+    assert work_tasks == []
+    assert len(personal_tasks) == 1
+    assert personal_tasks[0].name == "personal task"
+
+
+def test_list_with_list_flag(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["lists", "create", "personal"])
+    runner.invoke(app, ["add", "work-task"])  # default list
+    runner.invoke(app, ["add", "personal-task", "--list", "personal"])
+    result = runner.invoke(app, ["list", "--list", "personal"])
+    assert result.exit_code == 0
+    assert "personal-task" in result.stdout
+    assert "work-task" not in result.stdout
+
+
+def test_done_with_list_flag(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["lists", "create", "personal"])
+    runner.invoke(app, ["add", "finish me", "--list", "personal"])
+    result = runner.invoke(app, ["done", "1", "--list", "personal"])
+    assert result.exit_code == 0
+    task = store.load_tasks("personal", cfg.load_config())[0]
+    assert task.status == STATUS_DONE
+
+
+def test_rm_with_list_flag(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["lists", "create", "personal"])
+    runner.invoke(app, ["add", "a", "--list", "personal"])
+    runner.invoke(app, ["add", "b", "--list", "personal"])
+    result = runner.invoke(app, ["rm", "1", "--list", "personal"])
+    assert result.exit_code == 0
+    assert len(store.load_tasks("personal", cfg.load_config())) == 1
+
+
+def test_edit_with_list_flag(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["lists", "create", "personal"])
+    runner.invoke(app, ["add", "old", "--list", "personal"])
+    result = runner.invoke(app, ["edit", "1", "--name", "new", "--list", "personal"])
+    assert result.exit_code == 0
+    assert store.load_tasks("personal", cfg.load_config())[0].name == "new"
+
+
+def test_show_with_list_flag(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["lists", "create", "personal"])
+    runner.invoke(app, ["add", "detailed", "--list", "personal", "--project", "rb"])
+    result = runner.invoke(app, ["show", "1", "--list", "personal"])
+    assert result.exit_code == 0
+    assert "detailed" in result.stdout
+    assert "rb" in result.stdout
+
+
+def test_per_list_ids_are_independent_via_cli(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["lists", "create", "personal"])
+    runner.invoke(app, ["add", "work-1"])
+    runner.invoke(app, ["add", "work-2"])
+    runner.invoke(app, ["add", "personal-1", "--list", "personal"])
+    runner.invoke(app, ["add", "personal-2", "--list", "personal"])
+    work_tasks = store.load_tasks("work", cfg.load_config())
+    personal_tasks = store.load_tasks("personal", cfg.load_config())
+    assert [t.id for t in work_tasks] == [1, 2]
+    assert [t.id for t in personal_tasks] == [1, 2]

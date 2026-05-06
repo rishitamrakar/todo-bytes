@@ -41,11 +41,18 @@ from todo_bytes.config import (
 from todo_bytes.dates import parse_due
 from todo_bytes.models import STATUS_DONE, STATUS_OPEN, Task
 from todo_bytes.store import (
+    CannotDeleteDefaultListError,
+    ListAlreadyExistsError,
     ListNotFoundError,
     TaskNotFoundError,
     add_task,
+    all_lists,
+    create_list,
+    delete_list,
     delete_task,
     find_task,
+    list_exists,
+    list_summary,
     load_tasks,
     mark_done,
     update_task,
@@ -60,6 +67,8 @@ app = typer.Typer(
 )
 config_app = typer.Typer(help="Show or update todo-bytes config.", no_args_is_help=True)
 app.add_typer(config_app, name="config")
+lists_app = typer.Typer(help="Manage task lists.", no_args_is_help=True)
+app.add_typer(lists_app, name="lists")
 
 console = Console()
 
@@ -185,6 +194,60 @@ def _load_config_or_exit() -> Config:
         raise typer.Exit(code=1)
 
 
+# ---------- list management commands ----------
+
+@lists_app.command("show")
+def lists_show_cmd():
+    """Show all task lists with their counts."""
+    config = _load_config_or_exit()
+    names = all_lists(config)
+    if not names:
+        console.print("[dim]No lists yet. Create one with [cyan]todo lists create <name>[/cyan][/dim]")
+        return
+    console.print(_render_lists_table(names, config))
+
+
+@lists_app.command("create")
+def lists_create_cmd(name: str = typer.Argument(..., help="Name of the new list.")):
+    """Create a new empty task list."""
+    config = _load_config_or_exit()
+    try:
+        path = create_list(name, config)
+    except ListAlreadyExistsError as err:
+        _exit_with_error(str(err))
+    console.print(f"[green]✓[/green] Created list [bold]{name}[/bold] at {path}")
+
+
+@lists_app.command("delete")
+def lists_delete_cmd(
+    name: str = typer.Argument(..., help="Name of the list to delete."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation."),
+):
+    """Delete a task list. Refuses if it is the current default."""
+    config = _load_config_or_exit()
+    _confirm_list_delete_or_exit(name, config, skip=yes)
+    try:
+        delete_list(name, config)
+    except CannotDeleteDefaultListError as err:
+        _exit_with_error(str(err))
+    except ListNotFoundError as err:
+        _exit_with_error(str(err))
+    console.print(f"[yellow]✖[/yellow] Deleted list [bold]{name}[/bold]")
+
+
+@app.command("use")
+def use_cmd(name: str = typer.Argument(..., help="List to set as default.")):
+    """Set the default list. Future commands without --list will use this one."""
+    config = _load_config_or_exit()
+    if not list_exists(name, config):
+        _exit_with_error(
+            f"List '{name}' does not exist. Create it first with `todo lists create {name}`."
+        )
+    from todo_bytes.config import update_config
+    update_config("default_list", name)
+    console.print(f"[green]✓[/green] Default list is now [bold]{name}[/bold]")
+
+
 # ---------- task commands ----------
 
 @app.command("add")
@@ -193,13 +256,15 @@ def add_cmd(
     due: Optional[str] = typer.Option(None, "--due", "-d", help="today, tomorrow, weekday, or YYYY-MM-DD"),
     tag: list[str] = typer.Option(None, "--tag", "-t", help="Tag (repeatable)."),
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Project name."),
+    list_name: Optional[str] = typer.Option(None, "--list", "-l", help="Which list to add to. Defaults to the configured default list."),
 ):
-    """Add a new task to the default list."""
+    """Add a new task."""
     config = _load_config_or_exit()
+    target_list = _resolve_list(list_name, config)
     due_date = _parse_due_or_exit(due) if due else None
     try:
         task = add_task(
-            list_name=config.default_list,
+            list_name=target_list,
             name=name,
             due=due_date,
             tags=tag or [],
@@ -208,26 +273,33 @@ def add_cmd(
         )
     except ListNotFoundError as err:
         _exit_with_error(str(err))
-    console.print(f"[green]✓[/green] Added [bold]#{task.id}[/bold] {task.name}")
+    console.print(f"[green]✓[/green] Added [bold]#{task.id}[/bold] {task.name} [dim](list: {target_list})[/dim]")
 
 
 @app.command("list")
-def list_cmd():
-    """Show all open tasks in the default list."""
+def list_cmd(
+    list_name: Optional[str] = typer.Option(None, "--list", "-l", help="Which list to show. Defaults to the configured default list."),
+):
+    """Show all open tasks."""
     config = _load_config_or_exit()
-    tasks = _load_tasks_or_exit(config.default_list, config)
+    target_list = _resolve_list(list_name, config)
+    tasks = _load_tasks_or_exit(target_list, config)
     open_tasks = [t for t in tasks if t.status == STATUS_OPEN]
     if not open_tasks:
-        console.print("[dim]No open tasks. Add one with [cyan]todo add \"...\"[/cyan][/dim]")
+        console.print(f"[dim]No open tasks in '{target_list}'. Add one with [cyan]todo add \"...\"[/cyan][/dim]")
         return
-    console.print(_render_tasks_table(open_tasks, config.default_list))
+    console.print(_render_tasks_table(open_tasks, target_list))
 
 
 @app.command("show")
-def show_cmd(task_id: int = typer.Argument(..., help="Task id.")):
+def show_cmd(
+    task_id: int = typer.Argument(..., help="Task id."),
+    list_name: Optional[str] = typer.Option(None, "--list", "-l"),
+):
     """Show full details of a single task."""
     config = _load_config_or_exit()
-    tasks = _load_tasks_or_exit(config.default_list, config)
+    target_list = _resolve_list(list_name, config)
+    tasks = _load_tasks_or_exit(target_list, config)
     try:
         task = find_task(tasks, task_id)
     except TaskNotFoundError as err:
@@ -236,22 +308,30 @@ def show_cmd(task_id: int = typer.Argument(..., help="Task id.")):
 
 
 @app.command("done")
-def done_cmd(task_id: int = typer.Argument(..., help="Task id to mark done.")):
+def done_cmd(
+    task_id: int = typer.Argument(..., help="Task id to mark done."),
+    list_name: Optional[str] = typer.Option(None, "--list", "-l"),
+):
     """Mark a task as done."""
     config = _load_config_or_exit()
+    target_list = _resolve_list(list_name, config)
     try:
-        task = mark_done(config.default_list, task_id, config=config)
+        task = mark_done(target_list, task_id, config=config)
     except (ListNotFoundError, TaskNotFoundError) as err:
         _exit_with_error(str(err))
     console.print(f"[green]✓[/green] Done: [bold]#{task.id}[/bold] {task.name}")
 
 
 @app.command("rm")
-def rm_cmd(task_id: int = typer.Argument(..., help="Task id to delete.")):
+def rm_cmd(
+    task_id: int = typer.Argument(..., help="Task id to delete."),
+    list_name: Optional[str] = typer.Option(None, "--list", "-l"),
+):
     """Delete a task."""
     config = _load_config_or_exit()
+    target_list = _resolve_list(list_name, config)
     try:
-        delete_task(config.default_list, task_id, config=config)
+        delete_task(target_list, task_id, config=config)
     except (ListNotFoundError, TaskNotFoundError) as err:
         _exit_with_error(str(err))
     console.print(f"[yellow]✖[/yellow] Removed [bold]#{task_id}[/bold]")
@@ -264,14 +344,16 @@ def edit_cmd(
     due: Optional[str] = typer.Option(None, "--due", "-d", help="today, tomorrow, weekday, YYYY-MM-DD, or 'clear' to remove"),
     tag: Optional[list[str]] = typer.Option(None, "--tag", "-t", help="Replaces existing tags. Use 'clear' to remove all."),
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Use 'clear' to remove."),
+    list_name: Optional[str] = typer.Option(None, "--list", "-l"),
 ):
     """Edit fields on an existing task."""
     config = _load_config_or_exit()
+    target_list = _resolve_list(list_name, config)
     fields = _build_edit_fields(name=name, due=due, tag=tag, project=project)
     if not fields:
         _exit_with_error("Nothing to edit. Pass --name, --due, --tag, or --project.")
     try:
-        task = update_task(config.default_list, task_id, config=config, **fields)
+        task = update_task(target_list, task_id, config=config, **fields)
     except (ListNotFoundError, TaskNotFoundError) as err:
         _exit_with_error(str(err))
     except KeyError as err:
@@ -280,6 +362,24 @@ def edit_cmd(
 
 
 # ---------- task command helpers ----------
+
+def _resolve_list(list_name: Optional[str], config: Config) -> str:
+    """Return the target list — either the explicit --list value or the default."""
+    return list_name or config.default_list
+
+
+def _confirm_list_delete_or_exit(name: str, config: Config, skip: bool) -> None:
+    if skip:
+        return
+    summary = list_summary(name, config) if list_exists(name, config) else None
+    msg = f"Delete list '{name}'"
+    if summary and summary["total"] > 0:
+        msg += f" with {summary['total']} task(s)"
+    msg += "?"
+    if not typer.confirm(msg, default=False):
+        console.print("Aborted.")
+        raise typer.Exit(code=1)
+
 
 def _parse_due_or_exit(text: str) -> date:
     try:
@@ -355,6 +455,19 @@ def _render_task_details(task: Task) -> Table:
     table.add_row("project", task.project or "")
     table.add_row("created", str(task.created))
     table.add_row("done_at", str(task.done_at) if task.done_at else "")
+    return table
+
+
+def _render_lists_table(names: list[str], config: Config) -> Table:
+    table = Table(title="Lists", title_style="bold")
+    table.add_column("Name")
+    table.add_column("Open", justify="right", style="cyan")
+    table.add_column("Done", justify="right", style="dim")
+    table.add_column("Default", justify="center")
+    for name in names:
+        summary = list_summary(name, config)
+        is_default = "✓" if name == config.default_list else ""
+        table.add_row(name, str(summary["open"]), str(summary["done"]), is_default)
     return table
 
 
