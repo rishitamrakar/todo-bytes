@@ -4,12 +4,22 @@ Phase 1 commands:
   todo init                         — interactive setup
   todo config show                  — print current config
   todo config set <key> <value>     — update a config field
+
+Phase 2 commands (operate on the default list):
+  todo add "task name" [--due ...] [--tag ...] [--project ...]
+  todo list
+  todo show <id>
+  todo done <id>
+  todo rm <id>
+  todo edit <id> [--name ...] [--due ...] [--tag ...] [--project ...]
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import date
 from pathlib import Path
+from typing import Optional
 
 import typer
 import yaml
@@ -27,6 +37,18 @@ from todo_bytes.config import (
     load_config,
     save_config,
     update_config,
+)
+from todo_bytes.dates import parse_due
+from todo_bytes.models import STATUS_DONE, STATUS_OPEN, Task
+from todo_bytes.store import (
+    ListNotFoundError,
+    TaskNotFoundError,
+    add_task,
+    delete_task,
+    find_task,
+    load_tasks,
+    mark_done,
+    update_task,
 )
 
 
@@ -161,6 +183,179 @@ def _load_config_or_exit() -> Config:
     except FileNotFoundError as err:
         console.print(f"[red]{err}[/red]")
         raise typer.Exit(code=1)
+
+
+# ---------- task commands ----------
+
+@app.command("add")
+def add_cmd(
+    name: str = typer.Argument(..., help="What needs doing."),
+    due: Optional[str] = typer.Option(None, "--due", "-d", help="today, tomorrow, weekday, or YYYY-MM-DD"),
+    tag: list[str] = typer.Option(None, "--tag", "-t", help="Tag (repeatable)."),
+    project: Optional[str] = typer.Option(None, "--project", "-p", help="Project name."),
+):
+    """Add a new task to the default list."""
+    config = _load_config_or_exit()
+    due_date = _parse_due_or_exit(due) if due else None
+    try:
+        task = add_task(
+            list_name=config.default_list,
+            name=name,
+            due=due_date,
+            tags=tag or [],
+            project=project,
+            config=config,
+        )
+    except ListNotFoundError as err:
+        _exit_with_error(str(err))
+    console.print(f"[green]✓[/green] Added [bold]#{task.id}[/bold] {task.name}")
+
+
+@app.command("list")
+def list_cmd():
+    """Show all open tasks in the default list."""
+    config = _load_config_or_exit()
+    tasks = _load_tasks_or_exit(config.default_list, config)
+    open_tasks = [t for t in tasks if t.status == STATUS_OPEN]
+    if not open_tasks:
+        console.print("[dim]No open tasks. Add one with [cyan]todo add \"...\"[/cyan][/dim]")
+        return
+    console.print(_render_tasks_table(open_tasks, config.default_list))
+
+
+@app.command("show")
+def show_cmd(task_id: int = typer.Argument(..., help="Task id.")):
+    """Show full details of a single task."""
+    config = _load_config_or_exit()
+    tasks = _load_tasks_or_exit(config.default_list, config)
+    try:
+        task = find_task(tasks, task_id)
+    except TaskNotFoundError as err:
+        _exit_with_error(str(err))
+    console.print(_render_task_details(task))
+
+
+@app.command("done")
+def done_cmd(task_id: int = typer.Argument(..., help="Task id to mark done.")):
+    """Mark a task as done."""
+    config = _load_config_or_exit()
+    try:
+        task = mark_done(config.default_list, task_id, config=config)
+    except (ListNotFoundError, TaskNotFoundError) as err:
+        _exit_with_error(str(err))
+    console.print(f"[green]✓[/green] Done: [bold]#{task.id}[/bold] {task.name}")
+
+
+@app.command("rm")
+def rm_cmd(task_id: int = typer.Argument(..., help="Task id to delete.")):
+    """Delete a task."""
+    config = _load_config_or_exit()
+    try:
+        delete_task(config.default_list, task_id, config=config)
+    except (ListNotFoundError, TaskNotFoundError) as err:
+        _exit_with_error(str(err))
+    console.print(f"[yellow]✖[/yellow] Removed [bold]#{task_id}[/bold]")
+
+
+@app.command("edit")
+def edit_cmd(
+    task_id: int = typer.Argument(..., help="Task id to edit."),
+    name: Optional[str] = typer.Option(None, "--name", "-n"),
+    due: Optional[str] = typer.Option(None, "--due", "-d", help="today, tomorrow, weekday, YYYY-MM-DD, or 'clear' to remove"),
+    tag: Optional[list[str]] = typer.Option(None, "--tag", "-t", help="Replaces existing tags. Use 'clear' to remove all."),
+    project: Optional[str] = typer.Option(None, "--project", "-p", help="Use 'clear' to remove."),
+):
+    """Edit fields on an existing task."""
+    config = _load_config_or_exit()
+    fields = _build_edit_fields(name=name, due=due, tag=tag, project=project)
+    if not fields:
+        _exit_with_error("Nothing to edit. Pass --name, --due, --tag, or --project.")
+    try:
+        task = update_task(config.default_list, task_id, config=config, **fields)
+    except (ListNotFoundError, TaskNotFoundError) as err:
+        _exit_with_error(str(err))
+    except KeyError as err:
+        _exit_with_error(str(err))
+    console.print(f"[green]✓[/green] Updated [bold]#{task.id}[/bold]")
+
+
+# ---------- task command helpers ----------
+
+def _parse_due_or_exit(text: str) -> date:
+    try:
+        return parse_due(text)
+    except ValueError as err:
+        _exit_with_error(str(err))
+
+
+def _load_tasks_or_exit(list_name: str, config: Config) -> list[Task]:
+    try:
+        return load_tasks(list_name, config=config)
+    except ListNotFoundError as err:
+        _exit_with_error(str(err))
+
+
+def _exit_with_error(message: str):
+    console.print(f"[red]{message}[/red]")
+    raise typer.Exit(code=1)
+
+
+def _build_edit_fields(
+    name: Optional[str],
+    due: Optional[str],
+    tag: Optional[list[str]],
+    project: Optional[str],
+) -> dict:
+    """Build the kwargs dict for update_task from CLI options.
+
+    'clear' is a magic value to remove a field (set due/project to None, tags to []).
+    """
+    fields: dict = {}
+    if name is not None:
+        fields["name"] = name
+    if due is not None:
+        fields["due"] = None if due.lower() == "clear" else _parse_due_or_exit(due)
+    if tag is not None:
+        fields["tags"] = [] if tag == ["clear"] else list(tag)
+    if project is not None:
+        fields["project"] = None if project.lower() == "clear" else project
+    return fields
+
+
+# ---------- rendering ----------
+
+def _render_tasks_table(tasks: list[Task], list_name: str) -> Table:
+    table = Table(title=f"Open tasks — {list_name}", title_style="bold")
+    table.add_column("#", style="dim", justify="right")
+    table.add_column("Task")
+    table.add_column("Due")
+    table.add_column("Tags", style="cyan")
+    table.add_column("Project", style="magenta")
+    for task in sorted(tasks, key=lambda t: t.priority):
+        table.add_row(
+            str(task.id),
+            task.name,
+            str(task.due) if task.due else "",
+            ", ".join(task.tags) if task.tags else "",
+            task.project or "",
+        )
+    return table
+
+
+def _render_task_details(task: Task) -> Table:
+    table = Table(show_header=False, box=None)
+    table.add_column("Field", style="cyan")
+    table.add_column("Value")
+    table.add_row("id", str(task.id))
+    table.add_row("name", task.name)
+    table.add_row("status", task.status)
+    table.add_row("priority", str(task.priority))
+    table.add_row("due", str(task.due) if task.due else "")
+    table.add_row("tags", ", ".join(task.tags) if task.tags else "")
+    table.add_row("project", task.project or "")
+    table.add_row("created", str(task.created))
+    table.add_row("done_at", str(task.done_at) if task.done_at else "")
+    return table
 
 
 if __name__ == "__main__":
