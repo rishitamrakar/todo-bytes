@@ -2,7 +2,7 @@
 
 Minimal todo app — tasks live in a YAML file, manage via CLI or a tiny browser UI.
 
-> **Status:** Early development. Phase 1 (setup + config) is in place. CLI for tasks and the browser UI are coming next.
+> **Status:** Early development. Phase 1 (setup + config) and Phase 2 (task CRUD on default list) are in place. Multiple lists, view filters, and the browser UI are coming next.
 
 ## What it is
 
@@ -32,11 +32,21 @@ That's it. See [INSTALL.md](INSTALL.md) for full setup details.
 ## Quick start
 
 ```bash
-todo init                # one-time setup — pick a data dir, create your first list
-todo config show         # see where things live
+todo init                                    # one-time setup
+todo add "write blog post" --due tomorrow --tag blog --project rb
+todo add "review PR" --due today --tag work
+todo list                                    # show open tasks
+todo show 1                                  # full details
+todo done 2                                  # mark done
+todo edit 1 --name "new name" --due 2026-08-01
+todo rm 1                                    # delete
+todo config show                             # see where things live
 ```
 
-More commands (CLI for tasks, web UI) land in upcoming phases.
+Dates accept: `today`, `tomorrow`, weekday names (`mon`, `friday`, ...), or ISO `YYYY-MM-DD`.
+Use `--due clear` / `--project clear` / `--tag clear` to remove a field on edit.
+
+More commands (multiple lists, view filters, web UI) land in upcoming phases.
 
 ## Design notes
 
