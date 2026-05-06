@@ -42,6 +42,7 @@ from todo_bytes.dates import parse_due
 from todo_bytes.models import END_OF_DAY, STATUS_DONE, Task
 from todo_bytes import views
 from todo_bytes.store import (
+    CURRENT_SCHEMA_VERSION,
     CannotDeleteDefaultListError,
     ListAlreadyExistsError,
     ListNotFoundError,
@@ -142,6 +143,7 @@ def _create_empty_list_file(data_dir: Path, list_name: str) -> None:
         console.print(f"[dim]· Project file already exists: {list_file}[/dim]")
         return
     payload = {
+        "schema_version": CURRENT_SCHEMA_VERSION,
         "project": {
             "name": list_name,
             "description": None,

@@ -128,6 +128,30 @@ UI (browser) → FastAPI    ─┘
 - **Data dir is picked by you** — keeps source code separate from your tasks.
 - **YAML per list** — `work.yaml`, `personal.yaml`, etc., all in your data dir.
 
+## Schema versioning & migrations
+
+Every yaml file is stamped with a `schema_version` at the top:
+
+```yaml
+schema_version: 1
+project:
+  name: work
+  ...
+tasks:
+  - ...
+```
+
+This is the **on-disk format version**, separate from the app version (semver):
+
+- **App version** (`1.0.0`, `1.1.0`, `1.0.1`, ...) follows semver — patch for fixes, minor for new features, major for breaking changes.
+- **Schema version** only bumps when the yaml format breaks in an incompatible way. Adding a new optional field (e.g. `task.notes`) does **not** bump the schema.
+- All `1.x.y` releases read and write `schema_version: 1`.
+- A future `schema_version: 2` will ship with a `todo migrate` command that converts `1` → `2` in place, with a backup.
+- Missing `schema_version` is treated as `1` (forward-compat for legacy files).
+- An unknown / future `schema_version` raises a clear error telling you to upgrade.
+
+You never need to edit `schema_version` by hand.
+
 ## Development
 
 ```bash
