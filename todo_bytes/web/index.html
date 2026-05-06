@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>todo-bytes</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h1>todo-bytes</h1>
+      </div>
+      <nav class="lists" id="lists"></nav>
+      <button class="btn-secondary" id="new-list-btn">+ New list</button>
+    </aside>
+
+    <main class="main">
+      <header class="main-header">
+        <h2 id="list-title">Loading…</h2>
+        <button class="btn-primary" id="add-task-btn">+ Add task</button>
+      </header>
+
+      <nav class="views" id="views">
+        <button class="view-tab" data-view="open">Open</button>
+        <button class="view-tab" data-view="today">Today</button>
+        <button class="view-tab" data-view="overdue">Overdue</button>
+        <button class="view-tab" data-view="tomorrow">Tomorrow</button>
+        <button class="view-tab" data-view="week">This week</button>
+        <button class="view-tab" data-view="next-week">Next week</button>
+        <button class="view-tab" data-view="no-due">No due</button>
+        <button class="view-tab" data-view="done">Done (7d)</button>
+        <button class="view-tab" data-view="all">All</button>
+      </nav>
+
+      <div class="hint" id="reorder-hint">
+        Drag rows to reorder priority. Top of list = highest priority.
+      </div>
+
+      <ul class="tasks" id="tasks"></ul>
+      <div class="empty-state" id="empty-state" hidden>
+        <p>Nothing here yet.</p>
+      </div>
+    </main>
+  </div>
+
+  <!-- Add/Edit task modal -->
+  <div class="modal" id="task-modal" hidden>
+    <div class="modal-card">
+      <h3 id="modal-title">Add task</h3>
+      <form id="task-form">
+        <label>
+          Name
+          <input type="text" name="name" required autocomplete="off" />
+        </label>
+        <label>
+          Due date
+          <input type="date" name="due" />
+        </label>
+        <label>
+          Tags (comma-separated)
+          <input type="text" name="tags" autocomplete="off" placeholder="work, blog" />
+        </label>
+        <label>
+          Project
+          <input type="text" name="project" autocomplete="off" />
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" id="modal-cancel">Cancel</button>
+          <button type="submit" class="btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- New list modal -->
+  <div class="modal" id="list-modal" hidden>
+    <div class="modal-card">
+      <h3>New list</h3>
+      <form id="list-form">
+        <label>
+          List name
+          <input type="text" name="name" required autocomplete="off" />
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" id="list-cancel">Cancel</button>
+          <button type="submit" class="btn-primary">Create</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

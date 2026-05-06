@@ -2,7 +2,7 @@
 
 Minimal todo app — tasks live in a YAML file, manage via CLI or a tiny browser UI.
 
-> **Status:** Early development. Phases 1–4 are in place — setup, task CRUD, multiple lists, and view filters. Browser UI is next.
+> **Status:** Phases 1–5 are in place — setup, task CRUD, multiple lists, view filters, and a lightweight web UI with drag-to-reorder.
 
 ## What it is
 
@@ -91,7 +91,16 @@ todo config set default_list personal        # change default list (same as `tod
 todo config set data_dir ~/Dropbox/todos     # change where tasks live
 ```
 
-More commands (web UI with drag-reorder) land in upcoming phases.
+### Web UI
+```bash
+todo ui                                      # starts on http://127.0.0.1:8765 and opens browser
+todo ui --port 9000                          # custom port
+todo ui --no-browser                         # don't open a browser tab
+```
+
+The UI has a sidebar with all lists (counts + default marker), top tabs for every view, and full add/edit/done/delete from the browser. Drag rows by the `⋮⋮` handle to reorder priority on the **Open** view — changes persist back to the YAML file instantly.
+
+**Requires the `[ui]` extras** (FastAPI + uvicorn). See [INSTALL.md](INSTALL.md#install-from-the-repo) for the full install command.
 
 ## Where things live
 

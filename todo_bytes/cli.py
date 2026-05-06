@@ -236,6 +236,27 @@ def lists_delete_cmd(
     console.print(f"[yellow]✖[/yellow] Deleted list [bold]{name}[/bold]")
 
 
+@app.command("ui")
+def ui_cmd(
+    port: Optional[int] = typer.Option(None, "--port", "-p", help="Port to run on. Defaults to ui_port from config."),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Don't open a browser tab automatically."),
+):
+    """Start the web UI on http://127.0.0.1:<port>."""
+    config = _load_config_or_exit()
+    target_port = port or config.ui_port
+    try:
+        from todo_bytes.server import run_server
+    except ModuleNotFoundError as err:
+        _exit_with_error(
+            f"Web UI dependencies are not installed ({err.name}). "
+            f"Reinstall with the [ui] extras:\n"
+            f"  pipx install --force 'todo-bytes[ui] @ git+https://github.com/rishitamrakar/todo-bytes.git'"
+        )
+    console.print(f"[green]Starting UI on[/green] http://127.0.0.1:{target_port}")
+    console.print("[dim]Press Ctrl+C to stop.[/dim]")
+    run_server(port=target_port, open_browser=not no_browser)
+
+
 @app.command("use")
 def use_cmd(name: str = typer.Argument(..., help="List to set as default.")):
     """Set the default list. Future commands without --list will use this one."""
