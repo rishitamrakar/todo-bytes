@@ -23,7 +23,7 @@ I wanted something that is:
 ## Install
 
 ```bash
-pipx install git+https://github.com/<your-user>/todo-bytes.git
+pipx install git+https://github.com/rishitamrakar/todo-bytes.git
 todo init
 ```
 

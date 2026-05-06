@@ -14,7 +14,7 @@ pipx ensurepath
 ## Install from the repo
 
 ```bash
-pipx install git+https://github.com/<your-user>/todo-bytes.git
+pipx install git+https://github.com/rishitamrakar/todo-bytes.git
 ```
 
 Or, if you've cloned the repo locally:
@@ -124,7 +124,7 @@ This re-runs the install from the original git URL, so it pulls the latest `main
 If `reinstall` fails for any reason, force-install over the top:
 
 ```bash
-pipx install --force git+https://github.com/<your-user>/todo-bytes.git
+pipx install --force git+https://github.com/rishitamrakar/todo-bytes.git
 ```
 
 Verify:
@@ -137,7 +137,7 @@ todo list              # your existing tasks should still be there
 ### Try a feature branch before it's merged
 
 ```bash
-pipx install --force git+https://github.com/<your-user>/todo-bytes.git@<branch-name>
+pipx install --force git+https://github.com/rishitamrakar/todo-bytes.git@<branch-name>
 ```
 
 ## Uninstall
