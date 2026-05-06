@@ -155,7 +155,7 @@ rm -rf ~/my-todos       # only if you used the default
 ## Dev install (for hacking on the source)
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/rishitamrakar/todo-bytes.git
 cd todo-bytes
 python3 -m venv .venv
 source .venv/bin/activate
