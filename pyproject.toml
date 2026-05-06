@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "todo-bytes"
+version = "0.1.0"
+description = "Minimal todo app — tasks live in a YAML file, manage via CLI or a tiny browser UI."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Rishi Tamrakar" }
+]
+keywords = ["todo", "tasks", "cli", "yaml", "productivity"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Scheduling",
+]
+dependencies = [
+    "typer>=0.12.0",
+    "pyyaml>=6.0",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+ui = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.27.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+]
+
+[project.scripts]
+todo = "todo_bytes.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/rishibytes/todo-bytes"
+Repository = "https://github.com/rishibytes/todo-bytes"
+
+[tool.setuptools.packages.find]
+include = ["todo_bytes*"]
+
+[tool.setuptools.package-data]
+todo_bytes = ["web/*.html", "web/*.css", "web/*.js"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
