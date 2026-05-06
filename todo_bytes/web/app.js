@@ -16,6 +16,11 @@ const state = {
   activeView: 'open',
   tasks: [],
   editingTaskId: null,  // null = creating new task
+  // Sidebar filters — two independent multi-selects.
+  // A project is shown only if it passes BOTH filters.
+  // Default: only active statuses (todo + in-progress); all projects checked.
+  visibleStatuses: new Set(['todo', 'in-progress']),
+  visibleProjects: new Set(),  // populated on first refreshLists()
 };
 
 
@@ -50,6 +55,15 @@ const api = {
   async createList(name) {
     return fetchJson('/api/lists', { method: 'POST', body: { name } });
   },
+  async getProject(name) {
+    return fetchJson(`/api/projects/${encodeURIComponent(name)}`);
+  },
+  async updateProject(name, payload) {
+    return fetchJson(`/api/projects/${encodeURIComponent(name)}`, { method: 'PATCH', body: payload });
+  },
+  async deleteProject(name) {
+    return fetchJson(`/api/lists/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  },
 };
 
 async function fetchJson(url, opts = {}) {
@@ -71,18 +85,55 @@ async function fetchJson(url, opts = {}) {
 function renderLists() {
   const el = document.getElementById('lists');
   el.innerHTML = '';
-  state.lists.forEach(l => el.appendChild(buildListItem(l)));
+  const visible = state.lists.filter(p =>
+    state.visibleStatuses.has(p.status || 'todo') &&
+    state.visibleProjects.has(p.name)
+  );
+  visible.forEach(p => el.appendChild(buildListItem(p)));
 }
 
-function buildListItem(listSummary) {
-  const btn = document.createElement('button');
-  btn.className = 'list-item' + (listSummary.name === state.activeList ? ' active' : '');
-  btn.innerHTML = `
-    <span>${escape(listSummary.name)}${listSummary.name === state.defaultList ? '<span class="default-mark">★</span>' : ''}</span>
-    <span class="count">${listSummary.open}/${listSummary.total}</span>
+function renderProjectFilter() {
+  const el = document.getElementById('project-filter-list');
+  el.innerHTML = '';
+  state.lists.forEach(p => {
+    const lbl = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = state.visibleProjects.has(p.name);
+    cb.dataset.project = p.name;
+    cb.addEventListener('change', () => {
+      if (cb.checked) state.visibleProjects.add(p.name);
+      else state.visibleProjects.delete(p.name);
+      renderLists();
+    });
+    lbl.appendChild(cb);
+    lbl.appendChild(document.createTextNode(' ' + p.name));
+    el.appendChild(lbl);
+  });
+}
+
+function buildListItem(project) {
+  const div = document.createElement('div');
+  const status = project.status || 'todo';
+  div.className = 'list-item status-' + status + (project.name === state.activeList ? ' active' : '');
+  div.innerHTML = `
+    <span style="display:flex; align-items:center; flex:1;">
+      <span class="project-status-dot"></span>
+      ${escape(project.name)}
+      ${project.name === state.defaultList ? '<span class="default-mark">★</span>' : ''}
+    </span>
+    <button class="edit-btn" data-action="edit-project" title="Edit project">✎</button>
+    <span class="count">${project.open}/${project.total}</span>
   `;
-  btn.addEventListener('click', () => switchList(listSummary.name));
-  return btn;
+  div.addEventListener('click', e => {
+    if (e.target.closest('[data-action="edit-project"]')) {
+      e.stopPropagation();
+      openEditProjectModal(project.name);
+      return;
+    }
+    switchList(project.name);
+  });
+  return div;
 }
 
 
@@ -194,10 +245,13 @@ async function refreshLists() {
   const data = await api.getLists();
   state.lists = data.lists;
   state.defaultList = data.default;
+  // Auto-include any newly-created project in the visible filter
+  state.lists.forEach(p => state.visibleProjects.add(p.name));
   if (!state.activeList && state.lists.length > 0) {
     state.activeList = state.defaultList || state.lists[0].name;
   }
   renderLists();
+  renderProjectFilter();
   updateListTitle();
   renderStats();
 }
@@ -271,6 +325,127 @@ async function handleQuickAddSubmit(event) {
 }
 
 
+// ---------- new project (inline in sidebar) ----------
+
+async function handleNewProjectSubmit(event) {
+  event.preventDefault();
+  const input = document.getElementById('new-project-input');
+  const name = input.value.trim();
+  if (!name) return;
+  try {
+    await api.createList(name);
+  } catch (err) {
+    alert('Create project failed: ' + err.message);
+    return;
+  }
+  input.value = '';
+  state.activeList = name;
+  await refreshLists();
+  await refreshTasks();
+  input.focus();
+}
+
+
+// ---------- sidebar filters (status + projects) ----------
+
+function toggleFilterPanel(panelId, chipId) {
+  const panel = document.getElementById(panelId);
+  const chip = document.getElementById(chipId);
+  const opening = panel.hidden;
+  // Close all panels first (only one open at a time)
+  document.querySelectorAll('.filter-panel').forEach(p => p.hidden = true);
+  document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+  if (opening) {
+    panel.hidden = false;
+    chip.classList.add('active');
+  }
+}
+
+function handleStatusFilterChange(event) {
+  const cb = event.target;
+  if (cb.tagName !== 'INPUT') return;
+  const status = cb.dataset.status;
+  if (cb.checked) state.visibleStatuses.add(status);
+  else state.visibleStatuses.delete(status);
+  renderLists();
+}
+
+function selectAllStatuses() {
+  state.visibleStatuses = new Set(['todo', 'in-progress', 'done', 'hold', 'cancelled']);
+  document.querySelectorAll('#status-filter input[type=checkbox]').forEach(cb => cb.checked = true);
+  renderLists();
+}
+
+function selectAllProjects() {
+  state.visibleProjects = new Set(state.lists.map(p => p.name));
+  renderProjectFilter();
+  renderLists();
+}
+
+function deselectAllProjects() {
+  state.visibleProjects.clear();
+  renderProjectFilter();
+  renderLists();
+}
+
+
+// ---------- modal: edit project ----------
+
+async function openEditProjectModal(projectName) {
+  let project;
+  try {
+    project = await api.getProject(projectName);
+  } catch (err) {
+    alert('Could not load project: ' + err.message);
+    return;
+  }
+  const form = document.getElementById('project-form');
+  form.elements.name.value = project.name;
+  form.elements.description.value = project.description || '';
+  form.elements.status.value = project.status || 'todo';
+  const { date: pDate, time: pTime } = splitDueIso(project.due);
+  form.elements.due_date.value = pDate;
+  form.elements.due_time.value = pTime;
+  form.dataset.editing = projectName;
+  showModal('project-modal');
+}
+
+async function submitProjectForm(event) {
+  event.preventDefault();
+  const form = event.target;
+  const name = form.dataset.editing;
+  const payload = {
+    description: form.elements.description.value.trim() || null,
+    status: form.elements.status.value,
+    due: combineDateTimeToIso(form.elements.due_date.value, form.elements.due_time.value),
+  };
+  try {
+    await api.updateProject(name, payload);
+  } catch (err) {
+    alert('Save failed: ' + err.message);
+    return;
+  }
+  hideModal('project-modal');
+  await refreshLists();
+}
+
+async function deleteActiveProject() {
+  const form = document.getElementById('project-form');
+  const name = form.dataset.editing;
+  if (!confirm(`Delete project "${name}" and all its tasks?`)) return;
+  try {
+    await api.deleteProject(name);
+  } catch (err) {
+    alert('Delete failed: ' + err.message);
+    return;
+  }
+  hideModal('project-modal');
+  if (state.activeList === name) state.activeList = null;
+  await refreshLists();
+  await refreshTasks();
+}
+
+
 // ---------- modal: edit task ----------
 
 function openEditModal(task) {
@@ -283,10 +458,12 @@ function openEditModal(task) {
 function fillTaskForm(task) {
   const form = document.getElementById('task-form');
   form.elements.name.value = task.name || '';
-  form.elements.due.value = isoToDatetimeLocal(task.due);
+  const { date: dueDate, time: dueTime } = splitDueIso(task.due);
+  form.elements.due_date.value = dueDate;
+  form.elements.due_time.value = dueTime;
   form.elements.tags.value = (task.tags || []).join(', ');
-  form.elements.project.value = task.project || '';
   form.elements.status.value = task.status || 'todo';
+  document.getElementById('meta-project').textContent = task.project || '—';
   document.getElementById('meta-created').textContent = task.created || '—';
 }
 
@@ -312,35 +489,11 @@ function readTaskForm(form) {
     .filter(Boolean);
   return {
     name: form.elements.name.value.trim(),
-    due: datetimeLocalToIso(form.elements.due.value),
+    due: combineDateTimeToIso(form.elements.due_date.value, form.elements.due_time.value),
     tags,
-    project: form.elements.project.value.trim() || null,
     status: form.elements.status.value,
+    // project intentionally omitted — it's auto-set to the parent project
   };
-}
-
-
-// ---------- modal: new list ----------
-
-function openNewListModal() {
-  document.getElementById('list-form').reset();
-  showModal('list-modal');
-}
-
-async function submitListForm(event) {
-  event.preventDefault();
-  const name = event.target.elements.name.value.trim();
-  if (!name) return;
-  try {
-    await api.createList(name);
-  } catch (err) {
-    alert('Create list failed: ' + err.message);
-    return;
-  }
-  hideModal('list-modal');
-  state.activeList = name;
-  await refreshLists();
-  await refreshTasks();
 }
 
 
@@ -379,15 +532,25 @@ function dueClass(iso) {
   return '';
 }
 
-// <input type="datetime-local"> needs format YYYY-MM-DDTHH:MM (no seconds).
-function isoToDatetimeLocal(iso) {
-  if (!iso) return '';
-  return iso.slice(0, 16);
+// We split datetime into separate date + time inputs (native datetime-local
+// has no explicit Apply button, which is confusing). Time is optional — if
+// the user leaves it empty we default to end-of-day (23:59).
+function splitDueIso(iso) {
+  if (!iso) return { date: '', time: '' };
+  const datePart = iso.slice(0, 10);
+  const timePart = iso.slice(11, 16);  // HH:MM
+  // Hide the default end-of-day time — it's just our convention, not
+  // something the user picked.
+  if (timePart === '23:59') return { date: datePart, time: '' };
+  return { date: datePart, time: timePart };
 }
 
-function datetimeLocalToIso(localValue) {
-  // The browser gives us YYYY-MM-DDTHH:MM (or empty). Server accepts either.
-  return localValue || null;
+function combineDateTimeToIso(dateStr, timeStr) {
+  if (!dateStr) return null;
+  const time = timeStr || '23:59:59';  // end-of-day default when no time given
+  // Ensure seconds are present
+  const fullTime = time.length === 5 ? time + ':00' : time;
+  return `${dateStr}T${fullTime}`;
 }
 
 // Update the stats card in the side pane based on the current list summary.
@@ -410,12 +573,31 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.querySelectorAll('.view-tab').forEach(tab => {
     tab.addEventListener('click', () => switchView(tab.dataset.view));
   });
-  document.getElementById('new-list-btn').addEventListener('click', openNewListModal);
+
+  // Task modal
   document.getElementById('modal-cancel').addEventListener('click', () => hideModal('task-modal'));
-  document.getElementById('list-cancel').addEventListener('click', () => hideModal('list-modal'));
   document.getElementById('task-form').addEventListener('submit', submitTaskForm);
-  document.getElementById('list-form').addEventListener('submit', submitListForm);
+
+  // Inline task quick-add
   document.getElementById('quick-add').addEventListener('submit', handleQuickAddSubmit);
+
+  // Inline new-project form (sidebar)
+  document.getElementById('new-project-form').addEventListener('submit', handleNewProjectSubmit);
+
+  // Sidebar filters
+  document.getElementById('status-filter-btn').addEventListener('click',
+    () => toggleFilterPanel('status-filter', 'status-filter-btn'));
+  document.getElementById('project-filter-btn').addEventListener('click',
+    () => toggleFilterPanel('project-filter', 'project-filter-btn'));
+  document.getElementById('status-filter').addEventListener('change', handleStatusFilterChange);
+  document.getElementById('status-all-btn').addEventListener('click', selectAllStatuses);
+  document.getElementById('project-all-btn').addEventListener('click', selectAllProjects);
+  document.getElementById('project-none-btn').addEventListener('click', deselectAllProjects);
+
+  // Project edit modal
+  document.getElementById('project-cancel').addEventListener('click', () => hideModal('project-modal'));
+  document.getElementById('project-form').addEventListener('submit', submitProjectForm);
+  document.getElementById('project-delete').addEventListener('click', deleteActiveProject);
 
   renderViewTabs();
   await refreshLists();

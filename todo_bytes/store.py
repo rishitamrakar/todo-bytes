@@ -1,12 +1,20 @@
-"""Read/write task lists stored as yaml files in the user's data dir.
+"""Read/write project files.
 
-Each list lives in `<data_dir>/<list_name>.yaml` and looks like:
+A project is a yaml file in the data dir. Each file looks like:
 
-    list: work
+    project:
+      name: work
+      description: My work tasks
+      status: in-progress
+      due: 2026-12-31T23:59:59
+      created: 2026-05-06T17:30:00
     tasks:
       - id: 1
         name: ...
         ...
+
+The project metadata block is required. The yaml file stem (work.yaml)
+must match `project.name`.
 """
 
 from __future__ import annotations
@@ -18,37 +26,51 @@ from typing import Optional
 import yaml
 
 from todo_bytes.config import Config, load_config
-from todo_bytes.models import ACTIVE_STATUSES, STATUS_DONE, STATUS_TODO, Task
+from todo_bytes.models import (
+    ACTIVE_STATUSES,
+    STATUS_DONE,
+    STATUS_TODO,
+    Project,
+    Task,
+)
 
+
+# ---------- errors ----------
 
 class TaskNotFoundError(Exception):
-    """Raised when a task id cannot be found in a list."""
+    """Raised when a task id cannot be found in a project."""
 
 
-class ListNotFoundError(Exception):
-    """Raised when a list yaml file does not exist."""
+class ProjectNotFoundError(Exception):
+    """Raised when a project yaml file does not exist."""
 
 
-class ListAlreadyExistsError(Exception):
-    """Raised when trying to create a list that already exists."""
+class ProjectAlreadyExistsError(Exception):
+    """Raised when trying to create a project that already exists."""
 
 
-class CannotDeleteDefaultListError(Exception):
-    """Raised when trying to delete the list that is currently the default."""
+class CannotDeleteDefaultProjectError(Exception):
+    """Raised when trying to delete the project that is currently the default."""
+
+
+# Legacy aliases — keep until all callers are migrated.
+ListNotFoundError = ProjectNotFoundError
+ListAlreadyExistsError = ProjectAlreadyExistsError
+CannotDeleteDefaultListError = CannotDeleteDefaultProjectError
 
 
 # ---------- paths ----------
 
-def list_file_path(list_name: str, config: Config | None = None) -> Path:
-    """Return the path of the yaml file for a given list."""
+def project_file_path(project_name: str, config: Config | None = None) -> Path:
+    """Return the path of the yaml file for a given project."""
     cfg = config or load_config()
-    return Path(cfg.data_dir) / f"{list_name}.yaml"
+    return Path(cfg.data_dir) / f"{project_name}.yaml"
 
 
-# ---------- list management ----------
+# ---------- project management ----------
 
-def all_lists(config: Config | None = None) -> list[str]:
-    """Return all list names found in the data dir, sorted alphabetically."""
+def all_projects(config: Config | None = None) -> list[str]:
+    """Return all project names in the data dir, sorted alphabetically."""
     cfg = config or load_config()
     data_dir = Path(cfg.data_dir)
     if not data_dir.exists():
@@ -56,71 +78,103 @@ def all_lists(config: Config | None = None) -> list[str]:
     return sorted(p.stem for p in data_dir.glob("*.yaml"))
 
 
-def list_exists(list_name: str, config: Config | None = None) -> bool:
-    return list_file_path(list_name, config).exists()
+def project_exists(project_name: str, config: Config | None = None) -> bool:
+    return project_file_path(project_name, config).exists()
 
 
-def create_list(list_name: str, config: Config | None = None) -> Path:
-    """Create a new empty list yaml file. Raises if it already exists."""
-    if list_exists(list_name, config):
-        raise ListAlreadyExistsError(f"List '{list_name}' already exists")
-    path = list_file_path(list_name, config)
+def load_project(project_name: str, config: Config | None = None) -> Project:
+    """Load just the project metadata. Raises ProjectNotFoundError if missing."""
+    raw = _load_yaml_or_raise(project_name, config)
+    return Project.from_dict(raw.get("project") or {"name": project_name})
+
+
+def create_project(
+    project_name: str,
+    description: Optional[str] = None,
+    config: Config | None = None,
+) -> Project:
+    """Create a new empty project file with sensible default metadata."""
+    if project_exists(project_name, config):
+        raise ProjectAlreadyExistsError(f"Project '{project_name}' already exists")
+    project = Project(name=project_name, description=description, status=STATUS_TODO)
+    path = project_file_path(project_name, config)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump({"list": list_name, "tasks": []}, sort_keys=False))
-    return path
+    _write_project_file(path, project, [])
+    return project
 
 
-def delete_list(list_name: str, config: Config | None = None) -> None:
-    """Delete a list yaml file. Raises if it doesn't exist or is the default list."""
+def delete_project(project_name: str, config: Config | None = None) -> None:
+    """Delete a project file. Refuses if it's the configured default project."""
     cfg = config or load_config()
-    if list_name == cfg.default_list:
-        raise CannotDeleteDefaultListError(
-            f"Cannot delete '{list_name}' — it is the default list. "
-            f"Switch default first with `todo use <other-list>`."
+    if project_name == cfg.default_list:
+        raise CannotDeleteDefaultProjectError(
+            f"Cannot delete '{project_name}' — it is the default project. "
+            f"Switch default first with `todo use <other-project>`."
         )
-    path = list_file_path(list_name, cfg)
+    path = project_file_path(project_name, cfg)
     if not path.exists():
-        raise ListNotFoundError(f"List '{list_name}' not found at {path}")
+        raise ProjectNotFoundError(f"Project '{project_name}' not found at {path}")
     path.unlink()
 
 
-def list_summary(list_name: str, config: Config | None = None) -> dict:
-    """Return basic stats for a list: open (active) count, done count, total."""
-    tasks = load_tasks(list_name, config)
+def update_project(
+    project_name: str,
+    config: Config | None = None,
+    **fields,
+) -> Project:
+    """Update project metadata fields and save."""
+    project = load_project(project_name, config)
+    tasks = load_tasks(project_name, config)
+    _apply_project_field_updates(project, fields)
+    path = project_file_path(project_name, config)
+    _write_project_file(path, project, tasks)
+    return project
+
+
+def project_summary(project_name: str, config: Config | None = None) -> dict:
+    """Return a dict with project metadata + task counts + completion percent."""
+    project = load_project(project_name, config)
+    tasks = load_tasks(project_name, config)
     open_count = sum(1 for t in tasks if t.status in ACTIVE_STATUSES)
     done_count = sum(1 for t in tasks if t.status == STATUS_DONE)
-    return {"name": list_name, "open": open_count, "done": done_count, "total": len(tasks)}
+    total = len(tasks)
+    completed_total = open_count + done_count
+    completion_pct = round((done_count / completed_total) * 100) if completed_total else 0
+    return {
+        "name": project.name,
+        "description": project.description,
+        "status": project.status,
+        "due": project.due,
+        "created": project.created,
+        "open": open_count,
+        "done": done_count,
+        "total": total,
+        "completion_pct": completion_pct,
+    }
 
 
-# ---------- load / save ----------
+# ---------- task load / save ----------
 
-def load_tasks(list_name: str, config: Config | None = None) -> list[Task]:
-    """Load all tasks for a list. Raises ListNotFoundError if the file is missing."""
-    path = list_file_path(list_name, config)
-    if not path.exists():
-        raise ListNotFoundError(f"List '{list_name}' not found at {path}")
-    raw = yaml.safe_load(path.read_text()) or {}
+def load_tasks(project_name: str, config: Config | None = None) -> list[Task]:
+    """Load all tasks for a project."""
+    raw = _load_yaml_or_raise(project_name, config)
     return [Task.from_dict(t) for t in (raw.get("tasks") or [])]
 
 
-def save_tasks(list_name: str, tasks: list[Task], config: Config | None = None) -> None:
-    """Write tasks back to disk, preserving the list name as a top-level key."""
-    path = list_file_path(list_name, config)
-    payload = {
-        "list": list_name,
-        "tasks": [t.to_dict() for t in tasks],
-    }
-    path.write_text(yaml.safe_dump(payload, sort_keys=False, default_flow_style=False))
+def save_tasks(project_name: str, tasks: list[Task], config: Config | None = None) -> None:
+    """Save tasks back to disk, preserving project metadata."""
+    project = load_project(project_name, config)
+    path = project_file_path(project_name, config)
+    _write_project_file(path, project, tasks)
 
 
-# ---------- helpers ----------
+# ---------- task helpers ----------
 
 def next_task_id(tasks: list[Task]) -> int:
     return (max((t.id for t in tasks), default=0)) + 1
 
 
 def next_priority(tasks: list[Task]) -> int:
-    """New tasks go to the bottom of the list."""
     return (max((t.priority for t in tasks), default=0)) + 1
 
 
@@ -131,18 +185,27 @@ def find_task(tasks: list[Task], task_id: int) -> Task:
     raise TaskNotFoundError(f"Task #{task_id} not found")
 
 
-# ---------- CRUD ----------
+# ---------- task CRUD ----------
 
 def add_task(
-    list_name: str,
-    name: str,
+    list_name: Optional[str] = None,
+    name: str = "",
     due=None,
     tags: Optional[list[str]] = None,
-    project: Optional[str] = None,
     config: Config | None = None,
+    *,
+    project_name: Optional[str] = None,
 ) -> Task:
-    """Append a new task to a list. Returns the created Task."""
-    tasks = load_tasks(list_name, config)
+    """Append a new task to a project. Returns the created Task.
+
+    `task.project` is auto-set to the parent project's name — it is no
+    longer a free-form user input. (Future: a 'move task to another project'
+    flow can change it via update_task.)
+    """
+    target = project_name or list_name
+    if not target:
+        raise ValueError("Project name is required")
+    tasks = load_tasks(target, config)
     task = Task(
         id=next_task_id(tasks),
         name=name,
@@ -150,17 +213,16 @@ def add_task(
         status=STATUS_TODO,
         due=due,
         tags=tags or [],
-        project=project,
+        project=target,  # auto-set
         created=datetime.now(),
         done_at=None,
     )
     tasks.append(task)
-    save_tasks(list_name, tasks, config)
+    save_tasks(target, tasks, config)
     return task
 
 
 def update_task(list_name: str, task_id: int, config: Config | None = None, **fields) -> Task:
-    """Update one or more fields on an existing task. Returns the updated Task."""
     tasks = load_tasks(list_name, config)
     task = find_task(tasks, task_id)
     _apply_field_updates(task, fields)
@@ -168,24 +230,9 @@ def update_task(list_name: str, task_id: int, config: Config | None = None, **fi
     return task
 
 
-ALLOWED_UPDATE_FIELDS = {"name", "due", "tags", "project", "priority", "status", "done_at"}
-
-
-def _apply_field_updates(task: Task, fields: dict) -> None:
-    """Set the given fields on a task.
-
-    Caller is responsible for passing only the fields they want to change.
-    Passing None is meaningful — it clears the field (e.g. project=None to remove).
-    """
-    for key, value in fields.items():
-        if key not in ALLOWED_UPDATE_FIELDS:
-            raise KeyError(f"Cannot update unknown field: {key}")
-        setattr(task, key, value)
-
-
 def delete_task(list_name: str, task_id: int, config: Config | None = None) -> None:
     tasks = load_tasks(list_name, config)
-    find_task(tasks, task_id)  # raises if missing
+    find_task(tasks, task_id)
     remaining = [t for t in tasks if t.id != task_id]
     save_tasks(list_name, remaining, config)
 
@@ -200,10 +247,72 @@ def mark_done(list_name: str, task_id: int, config: Config | None = None) -> Tas
 
 
 def reopen_task(list_name: str, task_id: int, config: Config | None = None) -> Task:
-    """Move a task back to todo and clear done_at. Used for un-doing a done task."""
     tasks = load_tasks(list_name, config)
     task = find_task(tasks, task_id)
     task.status = STATUS_TODO
     task.done_at = None
     save_tasks(list_name, tasks, config)
     return task
+
+
+# ---------- legacy aliases (so existing tests/code still work during transition) ----------
+
+list_file_path = project_file_path
+all_lists = all_projects
+list_exists = project_exists
+
+
+def create_list(list_name: str, config: Config | None = None) -> Path:
+    """Legacy wrapper around create_project. Returns the file path for compat."""
+    create_project(list_name, config=config)
+    return project_file_path(list_name, config)
+
+
+def delete_list(list_name: str, config: Config | None = None) -> None:
+    delete_project(list_name, config)
+
+
+def list_summary(list_name: str, config: Config | None = None) -> dict:
+    """Legacy: return only the simple counts shape (open/done/total)."""
+    summary = project_summary(list_name, config)
+    return {k: summary[k] for k in ("name", "open", "done", "total")}
+
+
+# ---------- internals ----------
+
+ALLOWED_TASK_FIELDS = {"name", "due", "tags", "project", "priority", "status", "done_at"}
+ALLOWED_PROJECT_FIELDS = {"description", "status", "due"}
+
+
+def _apply_field_updates(task: Task, fields: dict) -> None:
+    """Set the given fields on a task. None is meaningful (clears the field)."""
+    for key, value in fields.items():
+        if key not in ALLOWED_TASK_FIELDS:
+            raise KeyError(f"Cannot update unknown field: {key}")
+        setattr(task, key, value)
+
+
+def _apply_project_field_updates(project: Project, fields: dict) -> None:
+    for key, value in fields.items():
+        if key not in ALLOWED_PROJECT_FIELDS:
+            raise KeyError(f"Cannot update unknown project field: {key}")
+        setattr(project, key, value)
+
+
+def _load_yaml_or_raise(project_name: str, config: Config | None) -> dict:
+    path = project_file_path(project_name, config)
+    if not path.exists():
+        raise ProjectNotFoundError(f"Project '{project_name}' not found at {path}")
+    return yaml.safe_load(path.read_text()) or {}
+
+
+def _write_project_file(path: Path, project: Project, tasks: list[Task]) -> None:
+    payload = {
+        "project": project.to_dict(),
+        "tasks": [t.to_dict() for t in tasks],
+    }
+    path.write_text(yaml.safe_dump(payload, sort_keys=False, default_flow_style=False))
+
+
+# Keep legacy ALLOWED_UPDATE_FIELDS name working
+ALLOWED_UPDATE_FIELDS = ALLOWED_TASK_FIELDS

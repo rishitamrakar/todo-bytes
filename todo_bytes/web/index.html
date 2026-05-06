@@ -12,8 +12,52 @@
       <div class="sidebar-header">
         <h1>todo-bytes</h1>
       </div>
+
+      <div class="sidebar-section-label">
+        <span>Projects</span>
+      </div>
+
+      <div class="filter-chips">
+        <button class="filter-chip" id="status-filter-btn" title="Filter projects by status">
+          Status <span class="caret">▾</span>
+        </button>
+        <button class="filter-chip" id="project-filter-btn" title="Pick which projects to show">
+          Projects <span class="caret">▾</span>
+        </button>
+      </div>
+
+      <div class="filter-panel" id="status-filter" hidden>
+        <div class="filter-panel-header">Show projects with status:</div>
+        <label><input type="checkbox" data-status="todo" checked> To Do</label>
+        <label><input type="checkbox" data-status="in-progress" checked> In Progress</label>
+        <label><input type="checkbox" data-status="done"> Done</label>
+        <label><input type="checkbox" data-status="hold"> Hold</label>
+        <label><input type="checkbox" data-status="cancelled"> Cancelled</label>
+        <div class="filter-actions">
+          <button type="button" class="btn-secondary btn-mini" id="status-all-btn">Select all</button>
+        </div>
+      </div>
+
+      <div class="filter-panel" id="project-filter" hidden>
+        <div class="filter-panel-header">Show specific projects:</div>
+        <div id="project-filter-list"></div>
+        <div class="filter-actions">
+          <button type="button" class="btn-secondary btn-mini" id="project-all-btn">Select all</button>
+          <button type="button" class="btn-secondary btn-mini" id="project-none-btn">Deselect all</button>
+        </div>
+      </div>
+
       <nav class="lists" id="lists"></nav>
-      <button class="btn-secondary" id="new-list-btn">+ New list</button>
+
+      <form class="sidebar-quick-add" id="new-project-form" autocomplete="off">
+        <span class="quick-add-icon">+</span>
+        <input
+          type="text"
+          id="new-project-input"
+          placeholder="Type a project name…"
+          autocomplete="off"
+        />
+      </form>
     </aside>
 
     <main class="main">
@@ -77,7 +121,7 @@
     </main>
   </div>
 
-  <!-- Edit task modal (for editing existing tasks — add is inline now) -->
+  <!-- Edit task modal -->
   <div class="modal" id="task-modal" hidden>
     <div class="modal-card">
       <h3 id="modal-title">Edit task</h3>
@@ -88,15 +132,14 @@
         </label>
         <label>
           Due
-          <input type="datetime-local" name="due" />
+          <div class="date-time-inputs">
+            <input type="date" name="due_date" />
+            <input type="time" name="due_time" title="Optional. Defaults to end of day." />
+          </div>
         </label>
         <label>
           Tags (comma-separated)
           <input type="text" name="tags" autocomplete="off" placeholder="work, blog" />
-        </label>
-        <label>
-          Project
-          <input type="text" name="project" autocomplete="off" />
         </label>
         <label>
           Status
@@ -109,8 +152,8 @@
           </select>
         </label>
         <div class="meta-info">
-          <span class="meta-label">Created:</span>
-          <span id="meta-created">—</span>
+          <span><span class="meta-label">Project:</span> <span id="meta-project">—</span></span>
+          <span><span class="meta-label">Created:</span> <span id="meta-created">—</span></span>
         </div>
         <div class="modal-actions">
           <button type="button" class="btn-secondary" id="modal-cancel">Cancel</button>
@@ -120,18 +163,41 @@
     </div>
   </div>
 
-  <!-- New list modal -->
-  <div class="modal" id="list-modal" hidden>
+  <!-- Edit project modal -->
+  <div class="modal" id="project-modal" hidden>
     <div class="modal-card">
-      <h3>New list</h3>
-      <form id="list-form">
+      <h3>Edit project</h3>
+      <form id="project-form">
         <label>
-          List name
-          <input type="text" name="name" required autocomplete="off" />
+          Name
+          <input type="text" name="name" disabled />
+        </label>
+        <label>
+          Description
+          <input type="text" name="description" autocomplete="off" />
+        </label>
+        <label>
+          Status
+          <select name="status">
+            <option value="todo">To Do</option>
+            <option value="in-progress">In Progress</option>
+            <option value="done">Done</option>
+            <option value="hold">Hold</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </label>
+        <label>
+          Due
+          <div class="date-time-inputs">
+            <input type="date" name="due_date" />
+            <input type="time" name="due_time" title="Optional. Defaults to end of day." />
+          </div>
         </label>
         <div class="modal-actions">
-          <button type="button" class="btn-secondary" id="list-cancel">Cancel</button>
-          <button type="submit" class="btn-primary">Create</button>
+          <button type="button" class="btn-danger" id="project-delete">Delete</button>
+          <span style="flex:1"></span>
+          <button type="button" class="btn-secondary" id="project-cancel">Cancel</button>
+          <button type="submit" class="btn-primary">Save</button>
         </div>
       </form>
     </div>

@@ -17,7 +17,7 @@ Phase 2 commands (operate on the default list):
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -139,11 +139,20 @@ def _create_data_dir(path: Path) -> None:
 def _create_empty_list_file(data_dir: Path, list_name: str) -> None:
     list_file = data_dir / f"{list_name}.yaml"
     if list_file.exists():
-        console.print(f"[dim]· List file already exists: {list_file}[/dim]")
+        console.print(f"[dim]· Project file already exists: {list_file}[/dim]")
         return
-    payload = {"list": list_name, "tasks": []}
+    payload = {
+        "project": {
+            "name": list_name,
+            "description": None,
+            "status": "todo",
+            "due": None,
+            "created": datetime.now(),
+        },
+        "tasks": [],
+    }
     list_file.write_text(yaml.safe_dump(payload, sort_keys=False))
-    console.print(f"[green]✓[/green] Created list file: {list_file}")
+    console.print(f"[green]✓[/green] Created project file: {list_file}")
 
 
 def _print_init_summary(config: Config) -> None:
@@ -277,32 +286,30 @@ def use_cmd(name: str = typer.Argument(..., help="List to set as default.")):
 @app.command("add")
 def add_cmd(
     name: str = typer.Argument(..., help="What needs doing."),
-    due: Optional[str] = typer.Option(None, "--due", "-d", help="today, tomorrow, weekday, or YYYY-MM-DD"),
+    due: Optional[str] = typer.Option(None, "--due", "-d", help="today, tomorrow, weekday, YYYY-MM-DD, or YYYY-MM-DDTHH:MM"),
     tag: list[str] = typer.Option(None, "--tag", "-t", help="Tag (repeatable)."),
-    project: Optional[str] = typer.Option(None, "--project", "-p", help="Project name."),
-    list_name: Optional[str] = typer.Option(None, "--list", "-l", help="Which list to add to. Defaults to the configured default list."),
+    project: Optional[str] = typer.Option(None, "--project", "-p", help="Project to add the task to. Defaults to the configured default project."),
 ):
     """Add a new task."""
     config = _load_config_or_exit()
-    target_list = _resolve_list(list_name, config)
+    target_project = _resolve_list(project, config)
     due_date = _parse_due_or_exit(due) if due else None
     try:
         task = add_task(
-            list_name=target_list,
+            list_name=target_project,
             name=name,
             due=due_date,
             tags=tag or [],
-            project=project,
             config=config,
         )
     except ListNotFoundError as err:
         _exit_with_error(str(err))
-    console.print(f"[green]✓[/green] Added [bold]#{task.id}[/bold] {task.name} [dim](list: {target_list})[/dim]")
+    console.print(f"[green]✓[/green] Added [bold]#{task.id}[/bold] {task.name} [dim](project: {target_project})[/dim]")
 
 
 @app.command("list")
 def list_cmd(
-    list_name: Optional[str] = typer.Option(None, "--list", "-l", help="Which list to show. Defaults to the configured default list."),
+    project: Optional[str] = typer.Option(None, "--project", "-p", help="Which project to show. Defaults to the configured default project."),
     today: bool = typer.Option(False, "--today", help="Open tasks due today."),
     overdue: bool = typer.Option(False, "--overdue", help="Open tasks past due."),
     tomorrow: bool = typer.Option(False, "--tomorrow", help="Open tasks due tomorrow."),
@@ -310,14 +317,13 @@ def list_cmd(
     next_week: bool = typer.Option(False, "--next-week", help="Open tasks due next week."),
     no_due: bool = typer.Option(False, "--no-due", help="Open tasks with no due date."),
     done: bool = typer.Option(False, "--done", help="Tasks done in the last 7 days."),
-    all_tasks: bool = typer.Option(False, "--all", help="All tasks (open + done) in this list."),
+    all_tasks: bool = typer.Option(False, "--all", help="All tasks (open + done) in this project."),
     tag: Optional[list[str]] = typer.Option(None, "--tag", "-t", help="Only tasks with this tag (repeatable for AND match)."),
-    project: Optional[str] = typer.Option(None, "--project", "-p", help="Only tasks for this project."),
 ):
     """Show tasks. Without filter flags, shows all open tasks."""
     config = _load_config_or_exit()
-    target_list = _resolve_list(list_name, config)
-    tasks = _load_tasks_or_exit(target_list, config)
+    target_project = _resolve_list(project, config)
+    tasks = _load_tasks_or_exit(target_project, config)
 
     view_flags = {
         "today": today, "overdue": overdue, "tomorrow": tomorrow,
@@ -328,24 +334,23 @@ def list_cmd(
 
     filtered = _apply_view(tasks, view_name)
     filtered = views.filter_by_tag(filtered, tag or [])
-    filtered = views.filter_by_project(filtered, project) if project else filtered
     sorted_tasks = _sort_for_view(filtered, view_name)
 
     if not sorted_tasks:
-        console.print(_empty_view_message(view_name, target_list))
+        console.print(_empty_view_message(view_name, target_project))
         return
-    console.print(_render_tasks_table(sorted_tasks, target_list, view_name))
+    console.print(_render_tasks_table(sorted_tasks, target_project, view_name))
 
 
 @app.command("show")
 def show_cmd(
     task_id: int = typer.Argument(..., help="Task id."),
-    list_name: Optional[str] = typer.Option(None, "--list", "-l"),
+    project: Optional[str] = typer.Option(None, "--project", "-p"),
 ):
     """Show full details of a single task."""
     config = _load_config_or_exit()
-    target_list = _resolve_list(list_name, config)
-    tasks = _load_tasks_or_exit(target_list, config)
+    target_project = _resolve_list(project, config)
+    tasks = _load_tasks_or_exit(target_project, config)
     try:
         task = find_task(tasks, task_id)
     except TaskNotFoundError as err:
@@ -356,13 +361,13 @@ def show_cmd(
 @app.command("done")
 def done_cmd(
     task_id: int = typer.Argument(..., help="Task id to mark done."),
-    list_name: Optional[str] = typer.Option(None, "--list", "-l"),
+    project: Optional[str] = typer.Option(None, "--project", "-p"),
 ):
     """Mark a task as done."""
     config = _load_config_or_exit()
-    target_list = _resolve_list(list_name, config)
+    target_project = _resolve_list(project, config)
     try:
-        task = mark_done(target_list, task_id, config=config)
+        task = mark_done(target_project, task_id, config=config)
     except (ListNotFoundError, TaskNotFoundError) as err:
         _exit_with_error(str(err))
     console.print(f"[green]✓[/green] Done: [bold]#{task.id}[/bold] {task.name}")
@@ -371,13 +376,13 @@ def done_cmd(
 @app.command("rm")
 def rm_cmd(
     task_id: int = typer.Argument(..., help="Task id to delete."),
-    list_name: Optional[str] = typer.Option(None, "--list", "-l"),
+    project: Optional[str] = typer.Option(None, "--project", "-p"),
 ):
     """Delete a task."""
     config = _load_config_or_exit()
-    target_list = _resolve_list(list_name, config)
+    target_project = _resolve_list(project, config)
     try:
-        delete_task(target_list, task_id, config=config)
+        delete_task(target_project, task_id, config=config)
     except (ListNotFoundError, TaskNotFoundError) as err:
         _exit_with_error(str(err))
     console.print(f"[yellow]✖[/yellow] Removed [bold]#{task_id}[/bold]")
@@ -387,19 +392,18 @@ def rm_cmd(
 def edit_cmd(
     task_id: int = typer.Argument(..., help="Task id to edit."),
     name: Optional[str] = typer.Option(None, "--name", "-n"),
-    due: Optional[str] = typer.Option(None, "--due", "-d", help="today, tomorrow, weekday, YYYY-MM-DD, or 'clear' to remove"),
+    due: Optional[str] = typer.Option(None, "--due", "-d", help="today, tomorrow, weekday, YYYY-MM-DD, YYYY-MM-DDTHH:MM, or 'clear' to remove"),
     tag: Optional[list[str]] = typer.Option(None, "--tag", "-t", help="Replaces existing tags. Use 'clear' to remove all."),
-    project: Optional[str] = typer.Option(None, "--project", "-p", help="Use 'clear' to remove."),
-    list_name: Optional[str] = typer.Option(None, "--list", "-l"),
+    project: Optional[str] = typer.Option(None, "--project", "-p", help="Which project the task lives in. Defaults to the configured default project."),
 ):
     """Edit fields on an existing task."""
     config = _load_config_or_exit()
-    target_list = _resolve_list(list_name, config)
-    fields = _build_edit_fields(name=name, due=due, tag=tag, project=project)
+    target_project = _resolve_list(project, config)
+    fields = _build_edit_fields(name=name, due=due, tag=tag)
     if not fields:
-        _exit_with_error("Nothing to edit. Pass --name, --due, --tag, or --project.")
+        _exit_with_error("Nothing to edit. Pass --name, --due, or --tag.")
     try:
-        task = update_task(target_list, task_id, config=config, **fields)
+        task = update_task(target_project, task_id, config=config, **fields)
     except (ListNotFoundError, TaskNotFoundError) as err:
         _exit_with_error(str(err))
     except KeyError as err:
@@ -504,11 +508,10 @@ def _build_edit_fields(
     name: Optional[str],
     due: Optional[str],
     tag: Optional[list[str]],
-    project: Optional[str],
 ) -> dict:
     """Build the kwargs dict for update_task from CLI options.
 
-    'clear' is a magic value to remove a field (set due/project to None, tags to []).
+    'clear' is a magic value to remove a field (None for due, [] for tags).
     """
     fields: dict = {}
     if name is not None:
@@ -517,8 +520,6 @@ def _build_edit_fields(
         fields["due"] = None if due.lower() == "clear" else _parse_due_or_exit(due)
     if tag is not None:
         fields["tags"] = [] if tag == ["clear"] else list(tag)
-    if project is not None:
-        fields["project"] = None if project.lower() == "clear" else project
     return fields
 
 

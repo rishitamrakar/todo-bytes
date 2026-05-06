@@ -28,11 +28,10 @@ WEB_DIR = Path(__file__).parent / "web"
 # ---------- request models ----------
 
 class CreateTaskRequest(BaseModel):
-    list: str
+    list: str  # the project to add to (legacy field name kept for now)
     name: str
     due: Optional[datetime] = None
     tags: list[str] = []
-    project: Optional[str] = None
 
 
 class UpdateTaskRequest(BaseModel):
@@ -50,6 +49,12 @@ class ReorderRequest(BaseModel):
 
 class CreateListRequest(BaseModel):
     name: str
+
+
+class UpdateProjectRequest(BaseModel):
+    description: Optional[str] = None
+    status: Optional[StatusLiteral] = None
+    due: Optional[datetime] = None
 
 
 # ---------- app factory ----------
@@ -83,11 +88,29 @@ def _register_list_routes(app: FastAPI) -> None:
     @app.get("/api/lists")
     def get_lists():
         config = cfg.load_config()
-        names = store.all_lists(config)
+        names = store.all_projects(config)
         return {
-            "lists": [store.list_summary(n, config) for n in names],
+            "lists": [store.project_summary(n, config) for n in names],
             "default": config.default_list,
         }
+
+    @app.get("/api/projects/{project_name}")
+    def get_project(project_name: str):
+        config = cfg.load_config()
+        try:
+            return store.project_summary(project_name, config)
+        except store.ProjectNotFoundError as err:
+            raise HTTPException(status_code=404, detail=str(err))
+
+    @app.patch("/api/projects/{project_name}")
+    def patch_project(project_name: str, payload: UpdateProjectRequest):
+        fields = payload.model_dump(exclude_unset=True)
+        config = cfg.load_config()
+        try:
+            store.update_project(project_name, config=config, **fields)
+        except store.ProjectNotFoundError as err:
+            raise HTTPException(status_code=404, detail=str(err))
+        return store.project_summary(project_name, config)
 
     @app.post("/api/lists", status_code=201)
     def create_list_endpoint(payload: CreateListRequest):
@@ -130,7 +153,6 @@ def _register_task_routes(app: FastAPI) -> None:
                 name=payload.name,
                 due=payload.due,
                 tags=payload.tags,
-                project=payload.project,
                 config=config,
             )
         except store.ListNotFoundError as err:

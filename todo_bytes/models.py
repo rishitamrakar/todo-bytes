@@ -1,4 +1,4 @@
-"""Task model — the shape of a single todo entry."""
+"""Task and Project models — the data shapes used throughout todo-bytes."""
 
 from __future__ import annotations
 
@@ -27,6 +27,35 @@ STATUS_OPEN = STATUS_TODO  # legacy alias, keeps old code working
 # end of that day. Cleaner semantics: "due 2026-05-10" means "by end of
 # 2026-05-10", not "midnight at the start of 2026-05-10".
 END_OF_DAY = time(23, 59, 59)
+
+
+@dataclass
+class Project:
+    """A project = a folder of related tasks. One yaml file per project.
+
+    `name` matches the yaml file stem (e.g. work.yaml → name='work').
+    Other fields are user-editable metadata.
+    """
+    name: str
+    description: Optional[str] = None
+    status: str = "todo"  # todo | in-progress | done | hold | cancelled
+    due: Optional[datetime] = None
+    created: datetime = field(default_factory=datetime.now)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "Project":
+        if not raw or "name" not in raw:
+            raise ValueError("Project must have a name")
+        return cls(
+            name=str(raw["name"]),
+            description=raw.get("description"),
+            status=_normalise_status(raw.get("status")),
+            due=coerce_due(raw.get("due")),
+            created=raw.get("created") or datetime.now(),
+        )
 
 
 @dataclass

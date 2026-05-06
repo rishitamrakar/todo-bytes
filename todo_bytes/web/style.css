@@ -314,10 +314,34 @@ body {
   font-size: 12px;
   color: var(--text-dim);
   display: flex;
-  gap: 6px;
+  gap: 16px;
   align-items: center;
+  flex-wrap: wrap;
 }
 .meta-label { font-weight: 600; }
+
+/* Date + time pair (replaces native datetime-local which has bad UX) */
+.date-time-inputs {
+  display: flex;
+  gap: 8px;
+}
+.date-time-inputs input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--card);
+}
+.date-time-inputs input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.date-time-inputs input[type="time"] {
+  flex: 0 0 110px;
+}
 
 /* Status dropdown in edit modal */
 .modal-card select {
@@ -459,6 +483,158 @@ body {
   border-color: var(--border);
 }
 .btn-secondary:hover { background: var(--row-hover); }
+
+/* Sidebar enhancements: section label, status filter, inline new-project form, edit hover button on each row */
+.sidebar-section-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  margin: 4px 0 4px 4px;
+}
+.icon-btn-mini {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 4px;
+}
+.icon-btn-mini:hover { color: var(--text); }
+
+/* Two filter chips: Status + Projects, side-by-side */
+.filter-chips {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.filter-chip {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text);
+  font-family: inherit;
+}
+.filter-chip:hover { background: var(--row-hover); }
+.filter-chip.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+.filter-chip .caret { opacity: 0.6; margin-left: 4px; }
+
+.filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.filter-panel[hidden] { display: none; }
+.filter-panel label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+.filter-panel-header {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+.filter-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.btn-mini { padding: 3px 8px; font-size: 11px; }
+
+.list-item {
+  position: relative;
+}
+.list-item .edit-btn {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 6px;
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.list-item:hover .edit-btn { opacity: 0.7; }
+.list-item .edit-btn:hover { opacity: 1; }
+
+.list-item .project-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 6px;
+  background: var(--text-dim);
+}
+.list-item.status-todo .project-status-dot { background: var(--text-dim); }
+.list-item.status-in-progress .project-status-dot { background: var(--accent); }
+.list-item.status-done .project-status-dot { background: var(--success); }
+.list-item.status-hold .project-status-dot { background: var(--warning); }
+.list-item.status-cancelled .project-status-dot { background: var(--danger); }
+
+.sidebar-quick-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  margin-top: 4px;
+}
+.sidebar-quick-add:focus-within {
+  border-color: var(--accent);
+  border-style: solid;
+}
+.sidebar-quick-add input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text);
+  padding: 0;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: white;
+  border: 1px solid var(--danger);
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+.btn-danger:hover { opacity: 0.9; }
 
 /* Modals */
 .modal {
