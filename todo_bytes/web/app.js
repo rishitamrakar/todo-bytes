@@ -16,12 +16,14 @@ const state = {
   activeView: 'open',
   tasks: [],
   editingTaskId: null,  // null = creating new task
-  // Sidebar filters — two independent multi-selects.
-  // A project is shown only if it passes BOTH filters.
-  // Default: only active statuses (todo + in-progress); all projects checked.
+  // Sidebar filters — status + tags. Both must pass for a project to show.
+  // Default: active statuses; all tags + untagged checked.
   visibleStatuses: new Set(['todo', 'in-progress']),
-  visibleProjects: new Set(),  // populated on first refreshLists()
+  visibleTags: new Set(),  // populated from current projects on each refresh
+  showUntagged: true,
 };
+
+const ALL_PROJECTS = '__all__';
 
 
 // ---------- api ----------
@@ -82,34 +84,83 @@ async function fetchJson(url, opts = {}) {
 
 // ---------- render: lists sidebar ----------
 
+function visibleProjects() {
+  return state.lists.filter(p =>
+    state.visibleStatuses.has(p.status || 'todo') && projectPassesTagFilter(p)
+  );
+}
+
+function projectPassesTagFilter(project) {
+  const tags = project.tags || [];
+  if (tags.length === 0) return state.showUntagged;
+  return tags.some(t => state.visibleTags.has(t));
+}
+
 function renderLists() {
   const el = document.getElementById('lists');
   el.innerHTML = '';
-  const visible = state.lists.filter(p =>
-    state.visibleStatuses.has(p.status || 'todo') &&
-    state.visibleProjects.has(p.name)
-  );
-  visible.forEach(p => el.appendChild(buildListItem(p)));
+  const projects = visibleProjects();
+  projects.forEach(p => el.appendChild(buildListItem(p)));
+  renderAllProjectsButton(projects);
 }
 
-function renderProjectFilter() {
-  const el = document.getElementById('project-filter-list');
+function renderAllProjectsButton(visible) {
+  const btn = document.getElementById('all-projects-btn');
+  btn.classList.toggle('active', state.activeList === ALL_PROJECTS);
+  document.getElementById('all-count').textContent = `${visible.length}/${state.lists.length}`;
+}
+
+function renderTagFilter() {
+  const el = document.getElementById('tag-filter-list');
   el.innerHTML = '';
-  state.lists.forEach(p => {
-    const lbl = document.createElement('label');
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked = state.visibleProjects.has(p.name);
-    cb.dataset.project = p.name;
-    cb.addEventListener('change', () => {
-      if (cb.checked) state.visibleProjects.add(p.name);
-      else state.visibleProjects.delete(p.name);
-      renderLists();
-    });
-    lbl.appendChild(cb);
-    lbl.appendChild(document.createTextNode(' ' + p.name));
-    el.appendChild(lbl);
+  const allTags = collectAllTags();
+  const hasUntagged = state.lists.some(p => !p.tags || p.tags.length === 0);
+
+  allTags.forEach(tag => el.appendChild(buildTagCheckbox(tag, state.visibleTags.has(tag))));
+  if (hasUntagged) el.appendChild(buildUntaggedCheckbox());
+  if (allTags.length === 0 && !hasUntagged) {
+    el.innerHTML = '<div style="color: var(--text-dim); font-size: 12px;">No tags yet. Add tags via project edit.</div>';
+  }
+}
+
+function collectAllTags() {
+  const set = new Set();
+  state.lists.forEach(p => (p.tags || []).forEach(t => set.add(t)));
+  return [...set].sort();
+}
+
+function buildTagCheckbox(tag, checked) {
+  const lbl = document.createElement('label');
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = checked;
+  cb.dataset.tag = tag;
+  cb.addEventListener('change', () => {
+    if (cb.checked) state.visibleTags.add(tag);
+    else state.visibleTags.delete(tag);
+    renderLists();
   });
+  lbl.appendChild(cb);
+  lbl.appendChild(document.createTextNode(' ' + tag));
+  return lbl;
+}
+
+function buildUntaggedCheckbox() {
+  const lbl = document.createElement('label');
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = state.showUntagged;
+  cb.addEventListener('change', () => {
+    state.showUntagged = cb.checked;
+    renderLists();
+  });
+  lbl.appendChild(cb);
+  const span = document.createElement('span');
+  span.style.fontStyle = 'italic';
+  span.style.color = 'var(--text-dim)';
+  span.textContent = ' (no tag)';
+  lbl.appendChild(span);
+  return lbl;
 }
 
 function buildListItem(project) {
@@ -143,10 +194,11 @@ function renderViewTabs() {
   document.querySelectorAll('.view-tab').forEach(tab => {
     tab.classList.toggle('active', tab.dataset.view === state.activeView);
   });
-  // Hint text + quick-add only relevant when looking at open tasks
+  // Hint text + quick-add only on Open view of a single project (not All).
   const isOpenView = state.activeView === 'open';
-  document.getElementById('reorder-hint').hidden = !isOpenView;
-  document.getElementById('quick-add').hidden = !isOpenView;
+  const isSingleProject = state.activeList !== ALL_PROJECTS;
+  document.getElementById('reorder-hint').hidden = !(isOpenView && isSingleProject);
+  document.getElementById('quick-add').hidden = !(isOpenView && isSingleProject);
 }
 
 
@@ -162,7 +214,8 @@ function renderTasks() {
   }
   empty.hidden = true;
   state.tasks.forEach(task => ul.appendChild(buildTaskRow(task)));
-  if (state.activeView === 'open') {
+  // Drag-reorder only makes sense within a single project on the open view.
+  if (state.activeView === 'open' && state.activeList !== ALL_PROJECTS) {
     enableDragReorder(ul);
   }
 }
@@ -171,13 +224,16 @@ function buildTaskRow(task) {
   const li = document.createElement('li');
   li.className = 'task ' + task.status;  // status used as a CSS modifier
   li.dataset.taskId = task.id;
+  // In the All view, show project as a badge so user knows where each task is from.
+  // In a single-project view, the project is implicit — hide the badge.
+  const showProjectBadge = state.activeList === ALL_PROJECTS;
   li.innerHTML = `
     <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
     <button class="status-circle" data-action="toggle-done" title="${statusTitle(task.status)}"></button>
     <span class="task-name">${escape(task.name)}</span>
     <span class="due ${dueClass(task.due)}">${formatDue(task.due)}</span>
     <span class="tags">${(task.tags || []).map(t => `<span class="tag">${escape(t)}</span>`).join('')}</span>
-    <span>${task.project ? `<span class="project">${escape(task.project)}</span>` : ''}</span>
+    <span>${showProjectBadge && task.project ? `<span class="project-badge">${escape(task.project)}</span>` : ''}</span>
     <span class="actions">
       <button class="icon-btn" data-action="edit" title="Edit">✎</button>
       <button class="icon-btn danger" data-action="delete" title="Delete">✕</button>
@@ -245,28 +301,60 @@ async function refreshLists() {
   const data = await api.getLists();
   state.lists = data.lists;
   state.defaultList = data.default;
-  // Auto-include any newly-created project in the visible filter
-  state.lists.forEach(p => state.visibleProjects.add(p.name));
+  // Auto-include any tags discovered on existing projects
+  collectAllTags().forEach(t => state.visibleTags.add(t));
   if (!state.activeList && state.lists.length > 0) {
     state.activeList = state.defaultList || state.lists[0].name;
   }
   renderLists();
-  renderProjectFilter();
+  renderTagFilter();
   updateListTitle();
   renderStats();
 }
 
 async function refreshTasks() {
   if (!state.activeList) return;
-  const data = await api.getTasks(state.activeList, state.activeView);
-  state.tasks = data.tasks;
+  if (state.activeList === ALL_PROJECTS) {
+    state.tasks = await fetchAllVisibleTasks();
+  } else {
+    const data = await api.getTasks(state.activeList, state.activeView);
+    state.tasks = data.tasks;
+  }
   renderTasks();
+}
+
+async function fetchAllVisibleTasks() {
+  const projects = visibleProjects();
+  if (projects.length === 0) return [];
+  const results = await Promise.all(
+    projects.map(p => api.getTasks(p.name, state.activeView).catch(() => ({ tasks: [] })))
+  );
+  // Combine, then sort by due date then priority (most useful in cross-project view).
+  return results
+    .flatMap(r => r.tasks)
+    .sort((a, b) => {
+      const ad = a.due || '9999-12-31';
+      const bd = b.due || '9999-12-31';
+      if (ad !== bd) return ad < bd ? -1 : 1;
+      return (a.priority || 0) - (b.priority || 0);
+    });
 }
 
 function switchList(name) {
   state.activeList = name;
   renderLists();
+  renderViewTabs();
   updateListTitle();
+  renderStats();
+  refreshTasks();
+}
+
+function switchToAllProjects() {
+  state.activeList = ALL_PROJECTS;
+  renderLists();
+  renderViewTabs();
+  updateListTitle();
+  renderStats();
   refreshTasks();
 }
 
@@ -277,7 +365,10 @@ function switchView(view) {
 }
 
 function updateListTitle() {
-  document.getElementById('list-title').textContent = state.activeList || '—';
+  const title = state.activeList === ALL_PROJECTS
+    ? `All visible (${visibleProjects().length} projects)`
+    : (state.activeList || '—');
+  document.getElementById('list-title').textContent = title;
 }
 
 async function toggleTaskDone(task) {
@@ -376,15 +467,17 @@ function selectAllStatuses() {
   renderLists();
 }
 
-function selectAllProjects() {
-  state.visibleProjects = new Set(state.lists.map(p => p.name));
-  renderProjectFilter();
+function selectAllTags() {
+  state.visibleTags = new Set(collectAllTags());
+  state.showUntagged = true;
+  renderTagFilter();
   renderLists();
 }
 
-function deselectAllProjects() {
-  state.visibleProjects.clear();
-  renderProjectFilter();
+function deselectAllTags() {
+  state.visibleTags.clear();
+  state.showUntagged = false;
+  renderTagFilter();
   renderLists();
 }
 
@@ -406,6 +499,7 @@ async function openEditProjectModal(projectName) {
   const { date: pDate, time: pTime } = splitDueIso(project.due);
   form.elements.due_date.value = pDate;
   form.elements.due_time.value = pTime;
+  form.elements.tags.value = (project.tags || []).join(', ');
   form.dataset.editing = projectName;
   showModal('project-modal');
 }
@@ -414,10 +508,15 @@ async function submitProjectForm(event) {
   event.preventDefault();
   const form = event.target;
   const name = form.dataset.editing;
+  const tags = (form.elements.tags.value || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
   const payload = {
     description: form.elements.description.value.trim() || null,
     status: form.elements.status.value,
     due: combineDateTimeToIso(form.elements.due_date.value, form.elements.due_time.value),
+    tags,
   };
   try {
     await api.updateProject(name, payload);
@@ -553,11 +652,18 @@ function combineDateTimeToIso(dateStr, timeStr) {
   return `${dateStr}T${fullTime}`;
 }
 
-// Update the stats card in the side pane based on the current list summary.
+// Update the stats card in the side pane.
+// In single-project view: stats for that project.
+// In All view: combined stats across all visible projects.
 function renderStats() {
-  const summary = state.lists.find(l => l.name === state.activeList);
-  const open = summary ? summary.open : 0;
-  const done = summary ? summary.done : 0;
+  let open = 0, done = 0;
+  if (state.activeList === ALL_PROJECTS) {
+    visibleProjects().forEach(p => { open += p.open || 0; done += p.done || 0; });
+  } else {
+    const summary = state.lists.find(l => l.name === state.activeList);
+    open = summary ? summary.open : 0;
+    done = summary ? summary.done : 0;
+  }
   const total = open + done;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   document.getElementById('stat-open').textContent = open;
@@ -587,12 +693,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Sidebar filters
   document.getElementById('status-filter-btn').addEventListener('click',
     () => toggleFilterPanel('status-filter', 'status-filter-btn'));
-  document.getElementById('project-filter-btn').addEventListener('click',
-    () => toggleFilterPanel('project-filter', 'project-filter-btn'));
+  document.getElementById('tag-filter-btn').addEventListener('click',
+    () => toggleFilterPanel('tag-filter', 'tag-filter-btn'));
   document.getElementById('status-filter').addEventListener('change', handleStatusFilterChange);
   document.getElementById('status-all-btn').addEventListener('click', selectAllStatuses);
-  document.getElementById('project-all-btn').addEventListener('click', selectAllProjects);
-  document.getElementById('project-none-btn').addEventListener('click', deselectAllProjects);
+  document.getElementById('tag-all-btn').addEventListener('click', selectAllTags);
+  document.getElementById('tag-none-btn').addEventListener('click', deselectAllTags);
+
+  // 'All visible' button at the top of the sidebar
+  document.getElementById('all-projects-btn').addEventListener('click', switchToAllProjects);
 
   // Project edit modal
   document.getElementById('project-cancel').addEventListener('click', () => hideModal('project-modal'));

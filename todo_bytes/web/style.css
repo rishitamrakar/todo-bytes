@@ -600,6 +600,40 @@ body {
 .list-item.status-hold .project-status-dot { background: var(--warning); }
 .list-item.status-cancelled .project-status-dot { background: var(--danger); }
 
+/* 'All visible' pseudo-project at the top of the sidebar list */
+.all-projects-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: none;
+  background: var(--bg);
+  text-align: left;
+  font-size: 14px;
+  color: var(--text);
+  font-weight: 500;
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+}
+.all-projects-item:hover { background: var(--row-hover); }
+.all-projects-item.active { background: var(--accent); color: white; border-color: var(--accent); }
+.all-projects-item .all-icon { margin-right: 8px; opacity: 0.7; }
+.all-projects-item .count { font-size: 12px; opacity: 0.7; }
+.all-projects-item.active .count { opacity: 0.95; }
+
+/* Project badge shown on each task row in the All view */
+.task .project-badge {
+  background: var(--row-hover);
+  color: var(--text-dim);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .sidebar-quick-add {
   display: flex;
   align-items: center;

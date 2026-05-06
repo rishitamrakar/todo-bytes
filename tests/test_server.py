@@ -143,6 +143,19 @@ def test_get_lists_includes_project_status(client: TestClient):
     assert "completion_pct" in work
 
 
+def test_patch_project_sets_tags(client: TestClient):
+    response = client.patch("/api/projects/work", json={"tags": ["work", "client-A"]})
+    assert response.status_code == 200
+    assert response.json()["tags"] == ["work", "client-A"]
+
+
+def test_get_lists_includes_project_tags(client: TestClient):
+    client.patch("/api/projects/work", json={"tags": ["work"]})
+    response = client.get("/api/lists")
+    work = next(l for l in response.json()["lists"] if l["name"] == "work")
+    assert work["tags"] == ["work"]
+
+
 # ---------- POST /api/tasks ----------
 
 def test_create_task_minimal(client: TestClient):

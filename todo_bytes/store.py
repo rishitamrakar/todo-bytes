@@ -146,6 +146,7 @@ def project_summary(project_name: str, config: Config | None = None) -> dict:
         "status": project.status,
         "due": project.due,
         "created": project.created,
+        "tags": list(project.tags),
         "open": open_count,
         "done": done_count,
         "total": total,
@@ -281,7 +282,7 @@ def list_summary(list_name: str, config: Config | None = None) -> dict:
 # ---------- internals ----------
 
 ALLOWED_TASK_FIELDS = {"name", "due", "tags", "project", "priority", "status", "done_at"}
-ALLOWED_PROJECT_FIELDS = {"description", "status", "due"}
+ALLOWED_PROJECT_FIELDS = {"description", "status", "due", "tags"}
 
 
 def _apply_field_updates(task: Task, fields: dict) -> None:

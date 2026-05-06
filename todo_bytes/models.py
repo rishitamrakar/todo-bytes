@@ -35,12 +35,16 @@ class Project:
 
     `name` matches the yaml file stem (e.g. work.yaml → name='work').
     Other fields are user-editable metadata.
+
+    `tags` are free-form labels for grouping projects (e.g. ['work', 'client-A']).
+    Sidebar filters use them to show/hide projects orthogonally to status.
     """
     name: str
     description: Optional[str] = None
     status: str = "todo"  # todo | in-progress | done | hold | cancelled
     due: Optional[datetime] = None
     created: datetime = field(default_factory=datetime.now)
+    tags: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -55,6 +59,7 @@ class Project:
             status=_normalise_status(raw.get("status")),
             due=coerce_due(raw.get("due")),
             created=raw.get("created") or datetime.now(),
+            tags=list(raw.get("tags") or []),
         )
 
 

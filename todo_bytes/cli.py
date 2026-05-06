@@ -148,6 +148,7 @@ def _create_empty_list_file(data_dir: Path, list_name: str) -> None:
             "status": "todo",
             "due": None,
             "created": datetime.now(),
+            "tags": [],
         },
         "tasks": [],
     }

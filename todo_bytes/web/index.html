@@ -21,8 +21,8 @@
         <button class="filter-chip" id="status-filter-btn" title="Filter projects by status">
           Status <span class="caret">▾</span>
         </button>
-        <button class="filter-chip" id="project-filter-btn" title="Pick which projects to show">
-          Projects <span class="caret">▾</span>
+        <button class="filter-chip" id="tag-filter-btn" title="Filter projects by tag">
+          Tags <span class="caret">▾</span>
         </button>
       </div>
 
@@ -38,14 +38,22 @@
         </div>
       </div>
 
-      <div class="filter-panel" id="project-filter" hidden>
-        <div class="filter-panel-header">Show specific projects:</div>
-        <div id="project-filter-list"></div>
+      <div class="filter-panel" id="tag-filter" hidden>
+        <div class="filter-panel-header">Show projects with tag:</div>
+        <div id="tag-filter-list"></div>
         <div class="filter-actions">
-          <button type="button" class="btn-secondary btn-mini" id="project-all-btn">Select all</button>
-          <button type="button" class="btn-secondary btn-mini" id="project-none-btn">Deselect all</button>
+          <button type="button" class="btn-secondary btn-mini" id="tag-all-btn">Select all</button>
+          <button type="button" class="btn-secondary btn-mini" id="tag-none-btn">Deselect all</button>
         </div>
       </div>
+
+      <button class="all-projects-item" id="all-projects-btn">
+        <span style="display:flex; align-items:center; flex:1;">
+          <span class="all-icon">☰</span>
+          All visible
+        </span>
+        <span class="count" id="all-count">0/0</span>
+      </button>
 
       <nav class="lists" id="lists"></nav>
 
@@ -192,6 +200,10 @@
             <input type="date" name="due_date" />
             <input type="time" name="due_time" title="Optional. Defaults to end of day." />
           </div>
+        </label>
+        <label>
+          Tags (comma-separated)
+          <input type="text" name="tags" autocomplete="off" placeholder="work, client-A" />
         </label>
         <div class="modal-actions">
           <button type="button" class="btn-danger" id="project-delete">Delete</button>

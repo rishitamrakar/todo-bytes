@@ -55,6 +55,7 @@ class UpdateProjectRequest(BaseModel):
     description: Optional[str] = None
     status: Optional[StatusLiteral] = None
     due: Optional[datetime] = None
+    tags: Optional[list[str]] = None
 
 
 # ---------- app factory ----------
