@@ -195,3 +195,78 @@ def test_mark_done_persists(setup_list):
 def test_mark_done_missing_task_raises(setup_list):
     with pytest.raises(store.TaskNotFoundError):
         store.mark_done("work", 99, setup_list)
+
+
+# ---------- list management ----------
+
+def test_all_lists_empty(fake_home: Path):
+    config = cfg.Config(data_dir=str(fake_home / "empty"), default_list="work", ui_port=8765)
+    cfg.save_config(config)
+    assert store.all_lists(config) == []
+
+
+def test_all_lists_returns_sorted_names(setup_list):
+    config = setup_list
+    store.create_list("personal", config)
+    store.create_list("side-projects", config)
+    assert store.all_lists(config) == ["personal", "side-projects", "work"]
+
+
+def test_list_exists(setup_list):
+    assert store.list_exists("work", setup_list) is True
+    assert store.list_exists("nope", setup_list) is False
+
+
+def test_create_list_creates_yaml_file(setup_list):
+    path = store.create_list("personal", setup_list)
+    assert path.is_file()
+    raw = yaml.safe_load(path.read_text())
+    assert raw == {"list": "personal", "tasks": []}
+
+
+def test_create_list_rejects_duplicate(setup_list):
+    with pytest.raises(store.ListAlreadyExistsError):
+        store.create_list("work", setup_list)
+
+
+def test_delete_list_removes_yaml_file(setup_list):
+    config = setup_list
+    store.create_list("personal", config)
+    store.delete_list("personal", config)
+    assert not store.list_exists("personal", config)
+
+
+def test_delete_list_refuses_default(setup_list):
+    with pytest.raises(store.CannotDeleteDefaultListError):
+        store.delete_list("work", setup_list)  # default in setup_list is 'work'
+
+
+def test_delete_list_missing_raises(setup_list):
+    with pytest.raises(store.ListNotFoundError):
+        store.delete_list("nonexistent", setup_list)
+
+
+def test_list_summary_counts(setup_list):
+    config = setup_list
+    store.add_task("work", "a", config=config)
+    store.add_task("work", "b", config=config)
+    store.add_task("work", "c", config=config)
+    store.mark_done("work", 2, config)
+    summary = store.list_summary("work", config)
+    assert summary == {"name": "work", "open": 2, "done": 1, "total": 3}
+
+
+def test_list_summary_empty_list(setup_list):
+    summary = store.list_summary("work", setup_list)
+    assert summary == {"name": "work", "open": 0, "done": 0, "total": 0}
+
+
+def test_per_list_ids_are_independent(setup_list):
+    config = setup_list
+    store.create_list("personal", config)
+    a = store.add_task("work", "work-1", config=config)
+    b = store.add_task("work", "work-2", config=config)
+    c = store.add_task("personal", "personal-1", config=config)
+    d = store.add_task("personal", "personal-2", config=config)
+    assert (a.id, b.id) == (1, 2)
+    assert (c.id, d.id) == (1, 2)  # independent counter

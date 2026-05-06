@@ -29,12 +29,67 @@ class ListNotFoundError(Exception):
     """Raised when a list yaml file does not exist."""
 
 
+class ListAlreadyExistsError(Exception):
+    """Raised when trying to create a list that already exists."""
+
+
+class CannotDeleteDefaultListError(Exception):
+    """Raised when trying to delete the list that is currently the default."""
+
+
 # ---------- paths ----------
 
 def list_file_path(list_name: str, config: Config | None = None) -> Path:
     """Return the path of the yaml file for a given list."""
     cfg = config or load_config()
     return Path(cfg.data_dir) / f"{list_name}.yaml"
+
+
+# ---------- list management ----------
+
+def all_lists(config: Config | None = None) -> list[str]:
+    """Return all list names found in the data dir, sorted alphabetically."""
+    cfg = config or load_config()
+    data_dir = Path(cfg.data_dir)
+    if not data_dir.exists():
+        return []
+    return sorted(p.stem for p in data_dir.glob("*.yaml"))
+
+
+def list_exists(list_name: str, config: Config | None = None) -> bool:
+    return list_file_path(list_name, config).exists()
+
+
+def create_list(list_name: str, config: Config | None = None) -> Path:
+    """Create a new empty list yaml file. Raises if it already exists."""
+    if list_exists(list_name, config):
+        raise ListAlreadyExistsError(f"List '{list_name}' already exists")
+    path = list_file_path(list_name, config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump({"list": list_name, "tasks": []}, sort_keys=False))
+    return path
+
+
+def delete_list(list_name: str, config: Config | None = None) -> None:
+    """Delete a list yaml file. Raises if it doesn't exist or is the default list."""
+    cfg = config or load_config()
+    if list_name == cfg.default_list:
+        raise CannotDeleteDefaultListError(
+            f"Cannot delete '{list_name}' — it is the default list. "
+            f"Switch default first with `todo use <other-list>`."
+        )
+    path = list_file_path(list_name, cfg)
+    if not path.exists():
+        raise ListNotFoundError(f"List '{list_name}' not found at {path}")
+    path.unlink()
+
+
+def list_summary(list_name: str, config: Config | None = None) -> dict:
+    """Return basic stats for a list: open count, done count."""
+    tasks = load_tasks(list_name, config)
+    open_count = sum(1 for t in tasks if t.status == STATUS_OPEN)
+    done_count = sum(1 for t in tasks if t.status == STATUS_DONE)
+    return {"name": list_name, "open": open_count, "done": done_count, "total": len(tasks)}
 
 
 # ---------- load / save ----------
