@@ -13,20 +13,43 @@ pipx ensurepath
 
 ## Install from the repo
 
+### CLI only (recommended for most users)
+
 ```bash
 pipx install git+https://github.com/rishitamrakar/todo-bytes.git
 ```
 
-Or, if you've cloned the repo locally:
+### CLI + Web UI
+
+The web UI needs FastAPI and uvicorn. Install with the `[ui]` extras:
+
 ```bash
-cd /path/to/todo-bytes
-pipx install .
+pipx install 'todo-bytes[ui] @ git+https://github.com/rishitamrakar/todo-bytes.git'
 ```
 
-Verify:
+### From a local clone
+
+```bash
+cd /path/to/todo-bytes
+pipx install '.[ui]'        # or just `pipx install .` for CLI only
+```
+
+### Verify
 ```bash
 todo version
 ```
+
+## Starting the web UI
+
+```bash
+todo ui                     # starts on the port from config (default 8765), opens browser
+todo ui --port 9000         # custom port
+todo ui --no-browser        # don't auto-open a browser tab
+```
+
+The UI runs on `http://127.0.0.1:<port>` and reads/writes the same YAML files as the CLI — changes from one show up in the other instantly. Press `Ctrl+C` in the terminal to stop the server.
+
+If you installed without the `[ui]` extras, `todo ui` will print the exact reinstall command for you.
 
 ## First-time setup
 
@@ -121,10 +144,12 @@ pipx reinstall todo-bytes
 
 This re-runs the install from the original git URL, so it pulls the latest `main`. Your tasks and config are **not** touched.
 
-If `reinstall` fails for any reason, force-install over the top:
+If `reinstall` fails for any reason, force-install over the top (use the `[ui]` form if you want the web UI):
 
 ```bash
 pipx install --force git+https://github.com/rishitamrakar/todo-bytes.git
+# or with web UI:
+pipx install --force 'todo-bytes[ui] @ git+https://github.com/rishitamrakar/todo-bytes.git'
 ```
 
 Verify:
