@@ -41,6 +41,9 @@ const api = {
   async markDone(listName, id) {
     return fetchJson(`/api/tasks/${listName}/${id}/done`, { method: 'POST' });
   },
+  async reopen(listName, id) {
+    return fetchJson(`/api/tasks/${listName}/${id}/reopen`, { method: 'POST' });
+  },
   async reorder(listName, ids) {
     return fetchJson(`/api/lists/${listName}/reorder`, { method: 'POST', body: { ids } });
   },
@@ -89,8 +92,10 @@ function renderViewTabs() {
   document.querySelectorAll('.view-tab').forEach(tab => {
     tab.classList.toggle('active', tab.dataset.view === state.activeView);
   });
-  // Hint text only relevant when reordering is allowed (open view)
-  document.getElementById('reorder-hint').hidden = state.activeView !== 'open';
+  // Hint text + quick-add only relevant when looking at open tasks
+  const isOpenView = state.activeView === 'open';
+  document.getElementById('reorder-hint').hidden = !isOpenView;
+  document.getElementById('quick-add').hidden = !isOpenView;
 }
 
 
@@ -113,16 +118,16 @@ function renderTasks() {
 
 function buildTaskRow(task) {
   const li = document.createElement('li');
-  li.className = 'task' + (task.status === 'done' ? ' done' : '');
+  li.className = 'task ' + task.status;  // status used as a CSS modifier
   li.dataset.taskId = task.id;
   li.innerHTML = `
-    <span class="drag-handle">⋮⋮</span>
+    <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
+    <button class="status-circle" data-action="toggle-done" title="${statusTitle(task.status)}"></button>
     <span class="task-name">${escape(task.name)}</span>
-    <span class="due ${dueClass(task.due)}">${task.due ? formatDate(task.due) : ''}</span>
+    <span class="due ${dueClass(task.due)}">${formatDue(task.due)}</span>
     <span class="tags">${(task.tags || []).map(t => `<span class="tag">${escape(t)}</span>`).join('')}</span>
     <span>${task.project ? `<span class="project">${escape(task.project)}</span>` : ''}</span>
     <span class="actions">
-      ${task.status === 'open' ? '<button class="icon-btn success" data-action="done" title="Mark done">✓</button>' : ''}
       <button class="icon-btn" data-action="edit" title="Edit">✎</button>
       <button class="icon-btn danger" data-action="delete" title="Delete">✕</button>
     </span>
@@ -131,8 +136,23 @@ function buildTaskRow(task) {
   return li;
 }
 
+function statusTitle(status) {
+  const map = {
+    'todo': 'Mark done',
+    'in-progress': 'Mark done',
+    'done': 'Click to un-do',
+    'hold': 'On hold',
+    'cancelled': 'Cancelled',
+  };
+  return map[status] || status;
+}
+
 function wireTaskRowEvents(li, task) {
   li.querySelector('.task-name').addEventListener('click', () => openEditModal(task));
+  li.querySelector('.status-circle').addEventListener('click', e => {
+    e.stopPropagation();
+    toggleTaskDone(task);
+  });
   li.querySelectorAll('.icon-btn').forEach(btn => {
     btn.addEventListener('click', e => {
       e.stopPropagation();
@@ -142,7 +162,6 @@ function wireTaskRowEvents(li, task) {
 }
 
 function handleTaskAction(action, task) {
-  if (action === 'done') return markTaskDone(task);
   if (action === 'edit') return openEditModal(task);
   if (action === 'delete') return deleteTask(task);
 }
@@ -180,6 +199,7 @@ async function refreshLists() {
   }
   renderLists();
   updateListTitle();
+  renderStats();
 }
 
 async function refreshTasks() {
@@ -206,8 +226,15 @@ function updateListTitle() {
   document.getElementById('list-title').textContent = state.activeList || '—';
 }
 
-async function markTaskDone(task) {
-  await api.markDone(state.activeList, task.id);
+async function toggleTaskDone(task) {
+  // Click the circle: done ↔ todo. Other statuses (hold, cancelled) need the modal.
+  if (task.status === 'done') {
+    await api.reopen(state.activeList, task.id);
+  } else if (task.status === 'todo' || task.status === 'in-progress') {
+    await api.markDone(state.activeList, task.id);
+  } else {
+    return;  // hold, cancelled — use edit modal
+  }
   await refreshLists();
   await refreshTasks();
 }
@@ -220,14 +247,31 @@ async function deleteTask(task) {
 }
 
 
-// ---------- modal: add/edit task ----------
+// ---------- inline quick-add ----------
 
-function openAddModal() {
-  state.editingTaskId = null;
-  document.getElementById('modal-title').textContent = 'Add task';
-  fillTaskForm({ name: '', due: '', tags: [], project: '' });
-  showModal('task-modal');
+async function handleQuickAddSubmit(event) {
+  event.preventDefault();
+  const input = document.getElementById('quick-add-input');
+  const name = input.value.trim();
+  if (!name) return;
+  if (!state.activeList) {
+    alert('Pick a list first.');
+    return;
+  }
+  try {
+    await api.createTask({ list: state.activeList, name });
+  } catch (err) {
+    alert('Add failed: ' + err.message);
+    return;
+  }
+  input.value = '';
+  await refreshLists();
+  await refreshTasks();
+  input.focus();  // ready for the next task
 }
+
+
+// ---------- modal: edit task ----------
 
 function openEditModal(task) {
   state.editingTaskId = task.id;
@@ -239,21 +283,19 @@ function openEditModal(task) {
 function fillTaskForm(task) {
   const form = document.getElementById('task-form');
   form.elements.name.value = task.name || '';
-  form.elements.due.value = task.due || '';
+  form.elements.due.value = isoToDatetimeLocal(task.due);
   form.elements.tags.value = (task.tags || []).join(', ');
   form.elements.project.value = task.project || '';
+  form.elements.status.value = task.status || 'todo';
+  document.getElementById('meta-created').textContent = task.created || '—';
 }
 
 async function submitTaskForm(event) {
   event.preventDefault();
-  const form = event.target;
-  const payload = readTaskForm(form);
+  if (state.editingTaskId === null) return;  // edit-only modal
+  const payload = readTaskForm(event.target);
   try {
-    if (state.editingTaskId === null) {
-      await api.createTask({ list: state.activeList, ...payload });
-    } else {
-      await api.updateTask(state.activeList, state.editingTaskId, payload);
-    }
+    await api.updateTask(state.activeList, state.editingTaskId, payload);
   } catch (err) {
     alert('Save failed: ' + err.message);
     return;
@@ -270,9 +312,10 @@ function readTaskForm(form) {
     .filter(Boolean);
   return {
     name: form.elements.name.value.trim(),
-    due: form.elements.due.value || null,
+    due: datetimeLocalToIso(form.elements.due.value),
     tags,
     project: form.elements.project.value.trim() || null,
+    status: form.elements.status.value,
   };
 }
 
@@ -317,16 +360,47 @@ function escape(str) {
     .replace(/"/g, '&quot;');
 }
 
-function formatDate(iso) {
-  return iso;  // already in YYYY-MM-DD which is fine
+// `due` arrives from the server as an ISO datetime string (e.g. 2026-05-10T23:59:59).
+// If the time is end-of-day (23:59), show just the date — cleaner. Otherwise show date + time.
+function formatDue(iso) {
+  if (!iso) return '';
+  const datePart = iso.slice(0, 10);
+  const timePart = iso.slice(11, 16);  // HH:MM
+  if (timePart === '23:59') return datePart;
+  return `${datePart} ${timePart}`;
 }
 
 function dueClass(iso) {
   if (!iso) return '';
+  const datePart = iso.slice(0, 10);
   const today = new Date().toISOString().slice(0, 10);
-  if (iso < today) return 'overdue';
-  if (iso === today) return 'today';
+  if (datePart < today) return 'overdue';
+  if (datePart === today) return 'today';
   return '';
+}
+
+// <input type="datetime-local"> needs format YYYY-MM-DDTHH:MM (no seconds).
+function isoToDatetimeLocal(iso) {
+  if (!iso) return '';
+  return iso.slice(0, 16);
+}
+
+function datetimeLocalToIso(localValue) {
+  // The browser gives us YYYY-MM-DDTHH:MM (or empty). Server accepts either.
+  return localValue || null;
+}
+
+// Update the stats card in the side pane based on the current list summary.
+function renderStats() {
+  const summary = state.lists.find(l => l.name === state.activeList);
+  const open = summary ? summary.open : 0;
+  const done = summary ? summary.done : 0;
+  const total = open + done;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  document.getElementById('stat-open').textContent = open;
+  document.getElementById('stat-done').textContent = done;
+  document.getElementById('stat-pct').textContent = pct + '%';
+  document.getElementById('progress-fill').style.width = pct + '%';
 }
 
 
@@ -336,12 +410,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.querySelectorAll('.view-tab').forEach(tab => {
     tab.addEventListener('click', () => switchView(tab.dataset.view));
   });
-  document.getElementById('add-task-btn').addEventListener('click', openAddModal);
   document.getElementById('new-list-btn').addEventListener('click', openNewListModal);
   document.getElementById('modal-cancel').addEventListener('click', () => hideModal('task-modal'));
   document.getElementById('list-cancel').addEventListener('click', () => hideModal('list-modal'));
   document.getElementById('task-form').addEventListener('submit', submitTaskForm);
   document.getElementById('list-form').addEventListener('submit', submitListForm);
+  document.getElementById('quick-add').addEventListener('submit', handleQuickAddSubmit);
 
   renderViewTabs();
   await refreshLists();

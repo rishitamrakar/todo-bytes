@@ -1,14 +1,18 @@
 """Friendly date parsing for --due flags.
 
-Accepts:
-  - today, tomorrow
-  - weekday names: mon/monday, tue/tuesday, ... (next occurrence; same-day picks next week)
-  - ISO format: 2026-05-10
+Accepts (returns datetime):
+  - today, tomorrow                          → end of that day (23:59:59)
+  - weekday names: mon/monday, tue/tuesday   → end of that day
+  - ISO date: 2026-05-10                     → end of that day
+  - ISO datetime: 2026-05-10T15:30           → exact time
+  - ISO datetime: 2026-05-10 15:30           → exact time
 """
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+
+from todo_bytes.models import END_OF_DAY
 
 
 _WEEKDAYS = {
@@ -22,8 +26,12 @@ _WEEKDAYS = {
 }
 
 
-def parse_due(text: str, today: date | None = None) -> date:
-    """Parse a friendly date string into a date object. Raises ValueError on bad input."""
+def parse_due(text: str, today: date | None = None) -> datetime:
+    """Parse a friendly date(time) string. Returns datetime. Raises ValueError on bad input.
+
+    Bare dates (today / tomorrow / weekday / YYYY-MM-DD) become end-of-day datetimes.
+    Explicit datetimes (YYYY-MM-DDTHH:MM) keep the given time.
+    """
     if not text or not text.strip():
         raise ValueError("Empty date input")
 
@@ -31,12 +39,16 @@ def parse_due(text: str, today: date | None = None) -> date:
     today = today or date.today()
 
     if cleaned == "today":
-        return today
+        return _end_of(today)
     if cleaned == "tomorrow":
-        return today + timedelta(days=1)
+        return _end_of(today + timedelta(days=1))
     if cleaned in _WEEKDAYS:
-        return _next_weekday(today, _WEEKDAYS[cleaned])
-    return _parse_iso_date(text)
+        return _end_of(_next_weekday(today, _WEEKDAYS[cleaned]))
+    return _parse_iso(text)
+
+
+def _end_of(d: date) -> datetime:
+    return datetime.combine(d, END_OF_DAY)
 
 
 def _next_weekday(today: date, target_weekday: int) -> date:
@@ -50,11 +62,23 @@ def _next_weekday(today: date, target_weekday: int) -> date:
     return today + timedelta(days=days_ahead)
 
 
-def _parse_iso_date(text: str) -> date:
+def _parse_iso(text: str) -> datetime:
+    """Try ISO datetime first, then ISO date (which becomes end-of-day datetime).
+
+    Note: datetime.fromisoformat accepts date-only strings on Python 3.11+ and
+    returns midnight. We want end-of-day for date-only input, so we detect
+    'no time component' explicitly.
+    """
+    cleaned = text.strip()
+    has_time = ("T" in cleaned) or (" " in cleaned and ":" in cleaned)
+    iso_form = cleaned.replace(" ", "T", 1)
     try:
-        return date.fromisoformat(text.strip())
+        parsed = datetime.fromisoformat(iso_form)
     except ValueError:
         raise ValueError(
             f"Could not parse date: {text!r}. "
-            f"Use today, tomorrow, a weekday name, or YYYY-MM-DD."
+            f"Use today, tomorrow, a weekday name, YYYY-MM-DD, or YYYY-MM-DDTHH:MM."
         )
+    if not has_time:
+        return _end_of(parsed.date())
+    return parsed

@@ -47,14 +47,15 @@ def test_load_missing_list_raises(setup_list):
 def test_save_then_load_roundtrip(setup_list):
     task = Task(
         id=1, name="hello", priority=1,
-        due=date(2026, 5, 10), tags=["work", "blog"], project="rb",
+        due=datetime(2026, 5, 10, 23, 59, 59),
+        tags=["work", "blog"], project="rb",
     )
     store.save_tasks("work", [task], setup_list)
     loaded = store.load_tasks("work", setup_list)
     assert len(loaded) == 1
     assert loaded[0].id == 1
     assert loaded[0].name == "hello"
-    assert loaded[0].due == date(2026, 5, 10)
+    assert loaded[0].due == datetime(2026, 5, 10, 23, 59, 59)
     assert loaded[0].tags == ["work", "blog"]
     assert loaded[0].project == "rb"
 
@@ -101,12 +102,12 @@ def test_add_task_assigns_id_and_priority(setup_list):
 def test_add_task_with_all_fields(setup_list):
     task = store.add_task(
         "work", "with stuff",
-        due=date(2026, 5, 10),
+        due=datetime(2026, 5, 10, 23, 59, 59),
         tags=["a", "b"],
         project="proj",
         config=setup_list,
     )
-    assert task.due == date(2026, 5, 10)
+    assert task.due == datetime(2026, 5, 10, 23, 59, 59)
     assert task.tags == ["a", "b"]
     assert task.project == "proj"
     assert task.status == STATUS_OPEN

@@ -9,14 +9,16 @@ Week definition: Monday–Sunday (EU default). Monday = weekday 0, Sunday = 6.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from typing import Optional
 
-from todo_bytes.models import STATUS_DONE, STATUS_OPEN, Task
+from todo_bytes.models import ACTIVE_STATUSES, STATUS_DONE, Task
 
 
 # ---------- predicates ----------
 
 def is_open(task: Task) -> bool:
-    return task.status == STATUS_OPEN
+    """Active = todo or in-progress. Hold and cancelled are not 'open' for daily work."""
+    return task.status in ACTIVE_STATUSES
 
 
 def is_done(task: Task) -> bool:
@@ -39,32 +41,45 @@ def next_week_bounds(today: date) -> tuple[date, date]:
 
 # ---------- date-based filters (open tasks only) ----------
 
+def _due_date(task: Task) -> Optional[date]:
+    """Date part of task.due (or None). Filters compare on date, not exact datetime.
+
+    Defensive: handles both date and datetime in case a Task is constructed
+    directly (e.g. in unit tests) with a plain date.
+    """
+    if task.due is None:
+        return None
+    if isinstance(task.due, datetime):
+        return task.due.date()
+    return task.due  # already a plain date
+
+
 def filter_today(tasks: list[Task], today: date | None = None) -> list[Task]:
     today = today or date.today()
-    return [t for t in tasks if is_open(t) and t.due == today]
+    return [t for t in tasks if is_open(t) and _due_date(t) == today]
 
 
 def filter_overdue(tasks: list[Task], today: date | None = None) -> list[Task]:
     today = today or date.today()
-    return [t for t in tasks if is_open(t) and t.due is not None and t.due < today]
+    return [t for t in tasks if is_open(t) and _due_date(t) is not None and _due_date(t) < today]
 
 
 def filter_tomorrow(tasks: list[Task], today: date | None = None) -> list[Task]:
     today = today or date.today()
     tomorrow = today + timedelta(days=1)
-    return [t for t in tasks if is_open(t) and t.due == tomorrow]
+    return [t for t in tasks if is_open(t) and _due_date(t) == tomorrow]
 
 
 def filter_this_week(tasks: list[Task], today: date | None = None) -> list[Task]:
     today = today or date.today()
     monday, sunday = week_bounds(today)
-    return [t for t in tasks if is_open(t) and t.due is not None and monday <= t.due <= sunday]
+    return [t for t in tasks if is_open(t) and _due_date(t) is not None and monday <= _due_date(t) <= sunday]
 
 
 def filter_next_week(tasks: list[Task], today: date | None = None) -> list[Task]:
     today = today or date.today()
     monday, sunday = next_week_bounds(today)
-    return [t for t in tasks if is_open(t) and t.due is not None and monday <= t.due <= sunday]
+    return [t for t in tasks if is_open(t) and _due_date(t) is not None and monday <= _due_date(t) <= sunday]
 
 
 def filter_no_due(tasks: list[Task]) -> list[Task]:
@@ -108,10 +123,10 @@ def sort_by_priority(tasks: list[Task]) -> list[Task]:
 
 
 def sort_by_due_then_priority(tasks: list[Task]) -> list[Task]:
-    """For multi-day views — due date first (None last), then priority."""
+    """For multi-day views — due first (None last), then priority."""
     return sorted(
         tasks,
-        key=lambda t: (t.due is None, t.due or date.max, t.priority),
+        key=lambda t: (t.due is None, t.due or datetime.max, t.priority),
     )
 
 

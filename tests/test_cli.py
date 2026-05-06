@@ -167,7 +167,7 @@ def test_add_with_due_today(ready_to_use, runner: CliRunner):
     result = runner.invoke(app, ["add", "do today", "--due", "today"])
     assert result.exit_code == 0
     tasks = store.load_tasks("work", cfg.load_config())
-    assert tasks[0].due == date.today()
+    assert tasks[0].due.date() == date.today()
 
 
 def test_add_with_iso_date_and_tags_and_project(ready_to_use, runner: CliRunner):
@@ -177,7 +177,7 @@ def test_add_with_iso_date_and_tags_and_project(ready_to_use, runner: CliRunner)
     )
     assert result.exit_code == 0
     task = store.load_tasks("work", cfg.load_config())[0]
-    assert task.due == date(2026, 12, 31)
+    assert task.due.date() == date(2026, 12, 31)
     assert task.tags == ["work", "blog"]
     assert task.project == "rb"
 
@@ -268,7 +268,7 @@ def test_edit_changes_due_date(ready_to_use, runner: CliRunner):
     runner.invoke(app, ["add", "x"])
     result = runner.invoke(app, ["edit", "1", "--due", "2026-08-01"])
     assert result.exit_code == 0
-    assert store.load_tasks("work", cfg.load_config())[0].due == date(2026, 8, 1)
+    assert store.load_tasks("work", cfg.load_config())[0].due.date() == date(2026, 8, 1)
 
 
 def test_edit_clears_due_date(ready_to_use, runner: CliRunner):
@@ -571,3 +571,30 @@ def test_list_empty_view_friendly_message(ready_to_use, runner: CliRunner):
     result = runner.invoke(app, ["list", "--today"])
     assert result.exit_code == 0
     assert "Nothing matches --today" in result.stdout
+
+
+# ---------- todo ui error path ----------
+
+def test_ui_missing_extras_message_includes_ui_marker(
+    ready_to_use, runner: CliRunner, monkeypatch
+):
+    """If the [ui] extras are missing, the error message must literally contain
+    `[ui]` so users can copy-paste the install command.
+
+    Rich console treats `[ui]` as a markup tag, so the brackets need to be
+    escaped — this test is the regression guard for that bug.
+    """
+    import builtins
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "todo_bytes.server":
+            raise ModuleNotFoundError("No module named 'fastapi'", name="fastapi")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    result = runner.invoke(app, ["ui"])
+    assert result.exit_code == 1
+    assert "[ui]" in result.stdout
+    assert "todo-bytes[ui]" in result.stdout

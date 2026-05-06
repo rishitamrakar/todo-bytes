@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 
 from todo_bytes import config as cfg
 from todo_bytes import store
-from todo_bytes.models import STATUS_DONE, STATUS_OPEN
+from todo_bytes.models import STATUS_DONE, STATUS_TODO
 from todo_bytes.server import create_app
 
 
@@ -100,21 +100,21 @@ def test_create_task_minimal(client: TestClient):
     body = response.json()
     assert body["id"] == 1
     assert body["name"] == "first"
-    assert body["status"] == "open"
+    assert body["status"] == "todo"
 
 
 def test_create_task_with_all_fields(client: TestClient):
     payload = {
         "list": "work",
         "name": "big task",
-        "due": "2026-12-31",
+        "due": "2026-12-31T23:59:59",
         "tags": ["work", "blog"],
         "project": "rb",
     }
     response = client.post("/api/tasks", json=payload)
     assert response.status_code == 201
     body = response.json()
-    assert body["due"] == "2026-12-31"
+    assert body["due"].startswith("2026-12-31")
     assert body["tags"] == ["work", "blog"]
     assert body["project"] == "rb"
 

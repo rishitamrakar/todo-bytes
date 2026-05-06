@@ -39,7 +39,7 @@ from todo_bytes.config import (
     update_config,
 )
 from todo_bytes.dates import parse_due
-from todo_bytes.models import STATUS_DONE, STATUS_OPEN, Task
+from todo_bytes.models import END_OF_DAY, STATUS_DONE, Task
 from todo_bytes import views
 from todo_bytes.store import (
     CannotDeleteDefaultListError,
@@ -247,10 +247,12 @@ def ui_cmd(
     try:
         from todo_bytes.server import run_server
     except ModuleNotFoundError as err:
+        # Note: square brackets must be escaped (\[) so Rich's markup parser
+        # doesn't treat [ui] as a style tag and silently drop it.
         _exit_with_error(
             f"Web UI dependencies are not installed ({err.name}). "
-            f"Reinstall with the [ui] extras:\n"
-            f"  pipx install --force 'todo-bytes[ui] @ git+https://github.com/rishitamrakar/todo-bytes.git'"
+            f"Reinstall with the \\[ui] extras:\n"
+            f"  pipx install --force 'todo-bytes\\[ui] @ git+https://github.com/rishitamrakar/todo-bytes.git'"
         )
     console.print(f"[green]Starting UI on[/green] http://127.0.0.1:{target_port}")
     console.print("[dim]Press Ctrl+C to stop.[/dim]")
@@ -430,7 +432,7 @@ def _pick_view_or_exit(view_flags: dict[str, bool]) -> str:
 def _apply_view(tasks: list[Task], view_name: str) -> list[Task]:
     """Apply the date/status filter that corresponds to a view name."""
     view_map = {
-        "open": lambda ts: [t for t in ts if t.status == STATUS_OPEN],
+        "open": lambda ts: [t for t in ts if views.is_open(t)],
         "today": views.filter_today,
         "overdue": views.filter_overdue,
         "tomorrow": views.filter_tomorrow,
@@ -470,11 +472,20 @@ def _confirm_list_delete_or_exit(name: str, config: Config, skip: bool) -> None:
         raise typer.Exit(code=1)
 
 
-def _parse_due_or_exit(text: str) -> date:
+def _parse_due_or_exit(text: str):
     try:
         return parse_due(text)
     except ValueError as err:
         _exit_with_error(str(err))
+
+
+def _format_due(due) -> str:
+    """Show just the date if time is the end-of-day default, else show date + time."""
+    if due is None:
+        return ""
+    if due.time() == END_OF_DAY:
+        return due.date().isoformat()
+    return due.strftime("%Y-%m-%d %H:%M")
 
 
 def _load_tasks_or_exit(list_name: str, config: Config) -> list[Task]:
@@ -541,7 +552,7 @@ def _render_tasks_table(tasks: list[Task], list_name: str, view_name: str = "ope
         if view_name == "all":
             row.append(task.status)
         row.extend([
-            str(task.due) if task.due else "",
+            _format_due(task.due),
             ", ".join(task.tags) if task.tags else "",
             task.project or "",
         ])
@@ -557,7 +568,7 @@ def _render_task_details(task: Task) -> Table:
     table.add_row("name", task.name)
     table.add_row("status", task.status)
     table.add_row("priority", str(task.priority))
-    table.add_row("due", str(task.due) if task.due else "")
+    table.add_row("due", _format_due(task.due))
     table.add_row("tags", ", ".join(task.tags) if task.tags else "")
     table.add_row("project", task.project or "")
     table.add_row("created", str(task.created))

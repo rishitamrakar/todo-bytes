@@ -83,7 +83,76 @@ body {
 .main {
   padding: 24px 32px;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
+
+.main-body {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 24px;
+  flex: 1;
+  min-height: 0;
+}
+
+@media (max-width: 1100px) {
+  .main-body { grid-template-columns: 1fr; }
+}
+
+.tasks-pane { min-width: 0; }
+.side-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Stats card */
+.stats-card, .side-placeholder {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.stats-card h3 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: var(--text-dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stats-numbers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.stats-numbers > div { display: flex; flex-direction: column; }
+.stat-value { font-size: 22px; font-weight: 600; color: var(--text); }
+.stat-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--row-hover);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--success);
+  width: 0%;
+  transition: width 0.3s;
+}
+
+.side-placeholder {
+  color: var(--text-dim);
+  font-size: 13px;
+  font-style: italic;
+}
+.side-placeholder p { margin: 0; }
 
 .main-header {
   display: flex;
@@ -143,7 +212,7 @@ body {
 
 .task {
   display: grid;
-  grid-template-columns: 24px 1fr auto auto auto auto;
+  grid-template-columns: 20px 22px 1fr auto auto auto auto;
   align-items: center;
   gap: 12px;
   padding: 10px 12px;
@@ -154,7 +223,7 @@ body {
 }
 
 .task:hover { background: var(--row-hover); }
-.task.done { opacity: 0.55; }
+.task.done { opacity: 0.6; }
 .task.done .task-name { text-decoration: line-through; }
 
 .task .drag-handle {
@@ -162,6 +231,107 @@ body {
   color: var(--text-dim);
   user-select: none;
   text-align: center;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.task:hover .drag-handle { opacity: 1; }
+
+/* Status circle — click to mark done. Filled when done. */
+.status-circle {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--text-dim);
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.1s, background 0.1s;
+}
+
+.status-circle:hover {
+  border-color: var(--success);
+}
+.status-circle:hover::before {
+  content: '✓';
+  color: var(--success);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.task.done .status-circle {
+  background: var(--success);
+  border-color: var(--success);
+  cursor: default;
+}
+.task.done .status-circle::before {
+  content: '✓';
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* In-progress: half-filled accent ring */
+.task.in-progress .status-circle {
+  border-color: var(--accent);
+  background: linear-gradient(90deg, var(--accent) 50%, transparent 50%);
+}
+
+/* Hold: paused look */
+.task.hold .status-circle {
+  border-color: var(--warning);
+}
+.task.hold .status-circle::before {
+  content: '⏸';
+  color: var(--warning);
+  font-size: 10px;
+}
+.task.hold .task-name { color: var(--text-dim); }
+
+/* Cancelled: struck-through, very faded */
+.task.cancelled {
+  opacity: 0.5;
+}
+.task.cancelled .task-name {
+  text-decoration: line-through;
+  color: var(--text-dim);
+}
+.task.cancelled .status-circle {
+  border-color: var(--danger);
+}
+.task.cancelled .status-circle::before {
+  content: '×';
+  color: var(--danger);
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* Edit modal — small meta line at bottom */
+.meta-info {
+  font-size: 12px;
+  color: var(--text-dim);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.meta-label { font-weight: 600; }
+
+/* Status dropdown in edit modal */
+.modal-card select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--card);
+  color: var(--text);
+}
+.modal-card select:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .task .task-name {
@@ -199,7 +369,10 @@ body {
 .task .actions {
   display: flex;
   gap: 4px;
+  opacity: 0;
+  transition: opacity 0.1s;
 }
+.task:hover .actions { opacity: 1; }
 
 .task .icon-btn {
   background: transparent;
@@ -212,12 +385,58 @@ body {
 }
 .task .icon-btn:hover { background: var(--row-hover); color: var(--text); border-color: var(--border); }
 .task .icon-btn.danger:hover { color: var(--danger); }
-.task .icon-btn.success:hover { color: var(--success); }
 
 .empty-state {
   text-align: center;
   padding: 48px 16px;
   color: var(--text-dim);
+}
+
+/* Inline quick-add input — sits at the bottom of the task list */
+.quick-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-top: 4px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  transition: border-color 0.1s, background 0.1s;
+}
+
+.quick-add:focus-within {
+  border-color: var(--accent);
+  border-style: solid;
+  background: var(--card);
+}
+
+.quick-add-icon {
+  color: var(--text-dim);
+  font-size: 16px;
+  font-weight: 500;
+  user-select: none;
+  width: 16px;
+  text-align: center;
+}
+
+.quick-add input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text);
+  padding: 0;
+}
+
+.quick-add input::placeholder {
+  color: var(--text-dim);
+}
+
+.quick-add[hidden] {
+  display: none;
 }
 
 /* Buttons */
@@ -250,6 +469,12 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 100;
+}
+
+/* The HTML `hidden` attribute should win over `display: flex` above.
+   Higher specificity (.modal[hidden] = 2 selectors) ensures this. */
+.modal[hidden] {
+  display: none;
 }
 
 .modal-card {

@@ -18,7 +18,7 @@ from typing import Optional
 import yaml
 
 from todo_bytes.config import Config, load_config
-from todo_bytes.models import STATUS_DONE, STATUS_OPEN, Task
+from todo_bytes.models import ACTIVE_STATUSES, STATUS_DONE, STATUS_TODO, Task
 
 
 class TaskNotFoundError(Exception):
@@ -85,9 +85,9 @@ def delete_list(list_name: str, config: Config | None = None) -> None:
 
 
 def list_summary(list_name: str, config: Config | None = None) -> dict:
-    """Return basic stats for a list: open count, done count."""
+    """Return basic stats for a list: open (active) count, done count, total."""
     tasks = load_tasks(list_name, config)
-    open_count = sum(1 for t in tasks if t.status == STATUS_OPEN)
+    open_count = sum(1 for t in tasks if t.status in ACTIVE_STATUSES)
     done_count = sum(1 for t in tasks if t.status == STATUS_DONE)
     return {"name": list_name, "open": open_count, "done": done_count, "total": len(tasks)}
 
@@ -147,7 +147,7 @@ def add_task(
         id=next_task_id(tasks),
         name=name,
         priority=next_priority(tasks),
-        status=STATUS_OPEN,
+        status=STATUS_TODO,
         due=due,
         tags=tags or [],
         project=project,
@@ -168,7 +168,7 @@ def update_task(list_name: str, task_id: int, config: Config | None = None, **fi
     return task
 
 
-ALLOWED_UPDATE_FIELDS = {"name", "due", "tags", "project", "priority", "status"}
+ALLOWED_UPDATE_FIELDS = {"name", "due", "tags", "project", "priority", "status", "done_at"}
 
 
 def _apply_field_updates(task: Task, fields: dict) -> None:
@@ -195,5 +195,15 @@ def mark_done(list_name: str, task_id: int, config: Config | None = None) -> Tas
     task = find_task(tasks, task_id)
     task.status = STATUS_DONE
     task.done_at = datetime.now()
+    save_tasks(list_name, tasks, config)
+    return task
+
+
+def reopen_task(list_name: str, task_id: int, config: Config | None = None) -> Task:
+    """Move a task back to todo and clear done_at. Used for un-doing a done task."""
+    tasks = load_tasks(list_name, config)
+    task = find_task(tasks, task_id)
+    task.status = STATUS_TODO
+    task.done_at = None
     save_tasks(list_name, tasks, config)
     return task

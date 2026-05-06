@@ -19,7 +19,6 @@
     <main class="main">
       <header class="main-header">
         <h2 id="list-title">Loading…</h2>
-        <button class="btn-primary" id="add-task-btn">+ Add task</button>
       </header>
 
       <nav class="views" id="views">
@@ -34,29 +33,62 @@
         <button class="view-tab" data-view="all">All</button>
       </nav>
 
-      <div class="hint" id="reorder-hint">
-        Drag rows to reorder priority. Top of list = highest priority.
-      </div>
+      <div class="main-body">
+        <section class="tasks-pane">
+          <div class="hint" id="reorder-hint">
+            Drag rows to reorder priority. Top of list = highest priority.
+          </div>
 
-      <ul class="tasks" id="tasks"></ul>
-      <div class="empty-state" id="empty-state" hidden>
-        <p>Nothing here yet.</p>
+          <ul class="tasks" id="tasks"></ul>
+
+          <form class="quick-add" id="quick-add" autocomplete="off">
+            <span class="quick-add-icon">+</span>
+            <input
+              type="text"
+              id="quick-add-input"
+              placeholder="Type to add a task, then press Enter…"
+              autocomplete="off"
+            />
+          </form>
+
+          <div class="empty-state" id="empty-state" hidden>
+            <p>Nothing here yet.</p>
+          </div>
+        </section>
+
+        <aside class="side-pane">
+          <div class="stats-card">
+            <h3>Progress</h3>
+            <div class="stats-numbers">
+              <div><span class="stat-value" id="stat-open">—</span><span class="stat-label">Open</span></div>
+              <div><span class="stat-value" id="stat-done">—</span><span class="stat-label">Done</span></div>
+              <div><span class="stat-value" id="stat-pct">—</span><span class="stat-label">Complete</span></div>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="progress-fill"></div>
+            </div>
+          </div>
+
+          <div class="side-placeholder">
+            <p>More widgets coming soon — charts, tag breakdown, weekly trend.</p>
+          </div>
+        </aside>
       </div>
     </main>
   </div>
 
-  <!-- Add/Edit task modal -->
+  <!-- Edit task modal (for editing existing tasks — add is inline now) -->
   <div class="modal" id="task-modal" hidden>
     <div class="modal-card">
-      <h3 id="modal-title">Add task</h3>
+      <h3 id="modal-title">Edit task</h3>
       <form id="task-form">
         <label>
           Name
           <input type="text" name="name" required autocomplete="off" />
         </label>
         <label>
-          Due date
-          <input type="date" name="due" />
+          Due
+          <input type="datetime-local" name="due" />
         </label>
         <label>
           Tags (comma-separated)
@@ -66,6 +98,20 @@
           Project
           <input type="text" name="project" autocomplete="off" />
         </label>
+        <label>
+          Status
+          <select name="status">
+            <option value="todo">To Do</option>
+            <option value="in-progress">In Progress</option>
+            <option value="done">Done</option>
+            <option value="hold">Hold</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </label>
+        <div class="meta-info">
+          <span class="meta-label">Created:</span>
+          <span id="meta-created">—</span>
+        </div>
         <div class="modal-actions">
           <button type="button" class="btn-secondary" id="modal-cancel">Cancel</button>
           <button type="submit" class="btn-primary">Save</button>

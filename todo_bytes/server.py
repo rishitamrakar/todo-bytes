@@ -7,9 +7,11 @@ logic. Started by `todo ui`, served on the port from config (default 8765).
 from __future__ import annotations
 
 import webbrowser
-from datetime import date
+from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
+
+StatusLiteral = Literal["todo", "in-progress", "done", "hold", "cancelled"]
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -28,18 +30,18 @@ WEB_DIR = Path(__file__).parent / "web"
 class CreateTaskRequest(BaseModel):
     list: str
     name: str
-    due: Optional[date] = None
+    due: Optional[datetime] = None
     tags: list[str] = []
     project: Optional[str] = None
 
 
 class UpdateTaskRequest(BaseModel):
     name: Optional[str] = None
-    due: Optional[date] = None
+    due: Optional[datetime] = None
     tags: Optional[list[str]] = None
     project: Optional[str] = None
     priority: Optional[int] = None
-    status: Optional[str] = None
+    status: Optional[StatusLiteral] = None
 
 
 class ReorderRequest(BaseModel):
@@ -138,6 +140,7 @@ def _register_task_routes(app: FastAPI) -> None:
     @app.patch("/api/tasks/{list_name}/{task_id}")
     def update_task_endpoint(list_name: str, task_id: int, payload: UpdateTaskRequest):
         fields = payload.model_dump(exclude_unset=True)
+        _manage_done_at_for_status_change(fields)
         config = cfg.load_config()
         try:
             task = store.update_task(list_name, task_id, config=config, **fields)
@@ -169,6 +172,17 @@ def _register_task_routes(app: FastAPI) -> None:
             raise HTTPException(status_code=404, detail=str(err))
         return task.to_dict()
 
+    @app.post("/api/tasks/{list_name}/{task_id}/reopen")
+    def reopen_endpoint(list_name: str, task_id: int):
+        config = cfg.load_config()
+        try:
+            task = store.reopen_task(list_name, task_id, config=config)
+        except store.TaskNotFoundError as err:
+            raise HTTPException(status_code=404, detail=str(err))
+        except store.ListNotFoundError as err:
+            raise HTTPException(status_code=404, detail=str(err))
+        return task.to_dict()
+
 
 # ---------- reorder ----------
 
@@ -190,6 +204,21 @@ def _apply_new_priorities(tasks: list, ordered_ids: list[int]) -> None:
             task.priority = id_to_priority[task.id]
 
 
+def _manage_done_at_for_status_change(fields: dict) -> None:
+    """If the PATCH body sets status, also keep done_at in sync.
+
+    Going to done   → set done_at to now (if not already set)
+    Going off done  → clear done_at
+    """
+    if "status" not in fields:
+        return
+    new_status = fields["status"]
+    if new_status == "done":
+        fields.setdefault("done_at", datetime.now())
+    else:
+        fields["done_at"] = None
+
+
 # ---------- helpers shared by routes ----------
 
 def _load_or_404(list_name: str, config: cfg.Config) -> list:
@@ -201,7 +230,7 @@ def _load_or_404(list_name: str, config: cfg.Config) -> list:
 
 def _apply_view(tasks: list, view_name: str) -> list:
     view_map = {
-        "open": lambda ts: [t for t in ts if t.status == "open"],
+        "open": lambda ts: [t for t in ts if views.is_open(t)],
         "today": views.filter_today,
         "overdue": views.filter_overdue,
         "tomorrow": views.filter_tomorrow,
