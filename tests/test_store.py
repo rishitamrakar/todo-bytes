@@ -275,3 +275,35 @@ def test_per_list_ids_are_independent(setup_list):
     d = store.add_task("personal", "personal-2", config=config)
     assert (a.id, b.id) == (1, 2)
     assert (c.id, d.id) == (1, 2)  # independent counter
+
+
+# ---------- schema versioning ----------
+
+def test_save_writes_current_schema_version(setup_list):
+    """Every save must stamp schema_version so future migrations have a clear marker."""
+    config = setup_list
+    store.add_task("work", "a", config=config)
+    raw = yaml.safe_load((Path(config.data_dir) / "work.yaml").read_text())
+    assert raw["schema_version"] == store.CURRENT_SCHEMA_VERSION
+
+
+def test_load_treats_missing_schema_version_as_v1(setup_list):
+    """Legacy yaml files without schema_version must still load (forward-compat)."""
+    config = setup_list
+    path = Path(config.data_dir) / "work.yaml"
+    # Setup fixture deliberately wrote no schema_version — confirm load works
+    assert "schema_version" not in yaml.safe_load(path.read_text())
+    tasks = store.load_tasks("work", config)
+    assert tasks == []  # loads cleanly, no error
+
+
+def test_load_rejects_future_schema_version(setup_list):
+    """A yaml file from a newer build must raise a clear error, not silently misread."""
+    config = setup_list
+    path = Path(config.data_dir) / "work.yaml"
+    payload = yaml.safe_load(path.read_text())
+    payload["schema_version"] = store.CURRENT_SCHEMA_VERSION + 5
+    path.write_text(yaml.safe_dump(payload))
+    with pytest.raises(store.UnsupportedSchemaVersionError) as exc:
+        store.load_tasks("work", config)
+    assert "todo migrate" in str(exc.value)

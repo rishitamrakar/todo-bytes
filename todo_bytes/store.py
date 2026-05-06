@@ -2,6 +2,7 @@
 
 A project is a yaml file in the data dir. Each file looks like:
 
+    schema_version: 1
     project:
       name: work
       description: My work tasks
@@ -15,6 +16,19 @@ A project is a yaml file in the data dir. Each file looks like:
 
 The project metadata block is required. The yaml file stem (work.yaml)
 must match `project.name`.
+
+Schema versioning policy:
+- `schema_version` is the on-disk yaml format version. It only changes
+  when the format breaks in an incompatible way — not for new optional
+  fields. App version (semver) and schema version are independent.
+- v1.x.y app releases all read/write `schema_version: 1`.
+- A future schema bump (e.g. introducing per-entry note timestamps in
+  a way that breaks existing yaml) becomes `schema_version: 2` and
+  ships with a `todo migrate` command.
+- Missing `schema_version` is treated as 1 (forward-compat for files
+  written before this field existed).
+- An unknown / future `schema_version` raises a clear error telling
+  the user to upgrade or run `todo migrate`.
 """
 
 from __future__ import annotations
@@ -34,6 +48,10 @@ from todo_bytes.models import (
     Task,
 )
 
+# On-disk yaml schema version. Bump only on a breaking format change.
+# See module docstring for the policy.
+CURRENT_SCHEMA_VERSION = 1
+
 
 # ---------- errors ----------
 
@@ -51,6 +69,10 @@ class ProjectAlreadyExistsError(Exception):
 
 class CannotDeleteDefaultProjectError(Exception):
     """Raised when trying to delete the project that is currently the default."""
+
+
+class UnsupportedSchemaVersionError(Exception):
+    """Raised when a project file declares a schema_version this build can't read."""
 
 
 # Legacy aliases — keep until all callers are migrated.
@@ -307,11 +329,28 @@ def _load_yaml_or_raise(project_name: str, config: Config | None) -> dict:
     path = project_file_path(project_name, config)
     if not path.exists():
         raise ProjectNotFoundError(f"Project '{project_name}' not found at {path}")
-    return yaml.safe_load(path.read_text()) or {}
+    raw = yaml.safe_load(path.read_text()) or {}
+    _check_schema_version(raw, path)
+    return raw
+
+
+def _check_schema_version(raw: dict, path: Path) -> None:
+    """Reject yaml files written by a newer, incompatible schema version.
+
+    Missing field is treated as 1 (forward-compat for legacy files).
+    """
+    version = raw.get("schema_version", 1)
+    if version > CURRENT_SCHEMA_VERSION:
+        raise UnsupportedSchemaVersionError(
+            f"{path} declares schema_version={version}, but this build only "
+            f"understands up to {CURRENT_SCHEMA_VERSION}. Upgrade todo-bytes "
+            f"or run `todo migrate`."
+        )
 
 
 def _write_project_file(path: Path, project: Project, tasks: list[Task]) -> None:
     payload = {
+        "schema_version": CURRENT_SCHEMA_VERSION,
         "project": project.to_dict(),
         "tasks": [t.to_dict() for t in tasks],
     }
