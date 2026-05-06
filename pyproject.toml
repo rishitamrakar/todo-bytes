@@ -52,3 +52,7 @@ include = ["todo_bytes*"]
 
 [tool.setuptools.package-data]
 todo_bytes = ["web/*.html", "web/*.css", "web/*.js"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"

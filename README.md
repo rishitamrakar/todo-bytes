@@ -50,6 +50,17 @@ UI (browser) → FastAPI    ─┘
 - **Data dir is picked by you** — keeps source code separate from your tasks.
 - **YAML per list** — `work.yaml`, `personal.yaml`, etc., all in your data dir.
 
+## Development
+
+```bash
+make install-dev      # creates .venv with dev + ui extras
+source .venv/bin/activate
+make test             # run the test suite
+make test-cov         # run tests with coverage report
+```
+
+Tests run against an isolated fake `HOME` directory — they never touch your real `~/.config/todo-bytes` or your data dir.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

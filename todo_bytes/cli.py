@@ -18,12 +18,12 @@ from rich.table import Table
 
 from todo_bytes import __version__
 from todo_bytes.config import (
-    CONFIG_FILE,
     Config,
-    DEFAULT_DATA_DIR,
     DEFAULT_LIST,
     DEFAULT_UI_PORT,
     config_exists,
+    get_config_file,
+    get_default_data_dir,
     load_config,
     save_config,
     update_config,
@@ -60,7 +60,7 @@ def init(
 ):
     """Set up todo-bytes — pick a data dir and create your first list."""
     if config_exists() and not yes:
-        _confirm_overwrite_or_exit()
+        _confirm_overwrite_or_exit(get_config_file())
 
     chosen_data_dir = data_dir or _prompt_data_dir()
     chosen_list = default_list or _prompt_default_list()
@@ -78,8 +78,8 @@ def init(
     _print_init_summary(config)
 
 
-def _confirm_overwrite_or_exit() -> None:
-    console.print(f"[yellow]Config already exists at {CONFIG_FILE}[/yellow]")
+def _confirm_overwrite_or_exit(config_file: Path) -> None:
+    console.print(f"[yellow]Config already exists at {config_file}[/yellow]")
     if not typer.confirm("Overwrite existing config?", default=False):
         console.print("Aborted.")
         raise typer.Exit(code=1)
@@ -88,7 +88,7 @@ def _confirm_overwrite_or_exit() -> None:
 def _prompt_data_dir() -> str:
     return typer.prompt(
         "Where should your tasks live?",
-        default=str(DEFAULT_DATA_DIR),
+        default=str(get_default_data_dir()),
     )
 
 
@@ -115,7 +115,7 @@ def _create_empty_list_file(data_dir: Path, list_name: str) -> None:
 
 
 def _print_init_summary(config: Config) -> None:
-    console.print(f"[green]✓[/green] Config saved to {CONFIG_FILE}")
+    console.print(f"[green]✓[/green] Config saved to {get_config_file()}")
     console.print()
     console.print("[bold]You're set.[/bold] Try:")
     console.print(f"  [cyan]todo config show[/cyan]")
@@ -131,7 +131,7 @@ def config_show():
     table = Table(show_header=False, box=None)
     table.add_column("Key", style="cyan")
     table.add_column("Value")
-    table.add_row("config_file", str(CONFIG_FILE))
+    table.add_row("config_file", str(get_config_file()))
     for key, value in asdict(config).items():
         table.add_row(key, str(value))
     console.print(table)

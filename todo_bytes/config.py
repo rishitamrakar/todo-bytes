@@ -14,12 +14,21 @@ from pathlib import Path
 import yaml
 
 
-CONFIG_DIR = Path.home() / ".config" / "todo-bytes"
-CONFIG_FILE = CONFIG_DIR / "config.yaml"
-
-DEFAULT_DATA_DIR = Path.home() / "my-todos"
 DEFAULT_LIST = "work"
 DEFAULT_UI_PORT = 8765
+
+
+def get_config_dir() -> Path:
+    """Where the global config lives. Recomputed each call so tests can override HOME."""
+    return Path.home() / ".config" / "todo-bytes"
+
+
+def get_config_file() -> Path:
+    return get_config_dir() / "config.yaml"
+
+
+def get_default_data_dir() -> Path:
+    return Path.home() / "my-todos"
 
 
 @dataclass
@@ -31,25 +40,26 @@ class Config:
     @classmethod
     def defaults(cls) -> "Config":
         return cls(
-            data_dir=str(DEFAULT_DATA_DIR),
+            data_dir=str(get_default_data_dir()),
             default_list=DEFAULT_LIST,
             ui_port=DEFAULT_UI_PORT,
         )
 
 
 def config_exists() -> bool:
-    return CONFIG_FILE.exists()
+    return get_config_file().exists()
 
 
 def load_config() -> Config:
     """Read config from disk. Raises FileNotFoundError if not set up yet."""
+    config_file = get_config_file()
     if not config_exists():
         raise FileNotFoundError(
-            f"No config found at {CONFIG_FILE}. Run `todo init` first."
+            f"No config found at {config_file}. Run `todo init` first."
         )
-    raw = yaml.safe_load(CONFIG_FILE.read_text()) or {}
+    raw = yaml.safe_load(config_file.read_text()) or {}
     return Config(
-        data_dir=raw.get("data_dir", str(DEFAULT_DATA_DIR)),
+        data_dir=raw.get("data_dir", str(get_default_data_dir())),
         default_list=raw.get("default_list", DEFAULT_LIST),
         ui_port=int(raw.get("ui_port", DEFAULT_UI_PORT)),
     )
@@ -57,8 +67,8 @@ def load_config() -> Config:
 
 def save_config(config: Config) -> None:
     """Write config to disk, creating parent dirs if needed."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_FILE.write_text(yaml.safe_dump(asdict(config), sort_keys=False))
+    get_config_dir().mkdir(parents=True, exist_ok=True)
+    get_config_file().write_text(yaml.safe_dump(asdict(config), sort_keys=False))
 
 
 def update_config(key: str, value: str) -> Config:
