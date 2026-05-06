@@ -2,7 +2,7 @@
 
 Minimal todo app — tasks live in a YAML file, manage via CLI or a tiny browser UI.
 
-> **Status:** Early development. Phase 1 (setup + config), Phase 2 (task CRUD), and Phase 3 (multiple lists) are in place. View filters and the browser UI are coming next.
+> **Status:** Early development. Phases 1–4 are in place — setup, task CRUD, multiple lists, and view filters. Browser UI is next.
 
 ## What it is
 
@@ -23,7 +23,7 @@ I wanted something that is:
 ## Install
 
 ```bash
-pipx install git+https://github.com/<your-user>/todo-bytes.git
+pipx install git+https://github.com/rishitamrakar/todo-bytes.git
 todo init
 ```
 
@@ -59,6 +59,27 @@ todo done 1 --list personal
 Every task command supports `--list <name>` (or `-l`). Without it, the configured default list is used.
 Each list keeps its own task IDs (work has 1, 2, 3... and personal has 1, 2, 3... independently).
 
+### Views (filter `todo list`)
+```bash
+todo list --today                            # due today
+todo list --overdue                          # past due, still open
+todo list --tomorrow                         # due tomorrow
+todo list --week                             # this week (Mon–Sun)
+todo list --next-week                        # next week
+todo list --no-due                           # open tasks with no due date
+todo list --done                             # done in last 7 days
+todo list --all                              # everything (open + done)
+
+# Tag and project filters compose with any view
+todo list --tag work                         # all open tasks tagged work
+todo list --today --tag work                 # today's work tasks only
+todo list --tag work --tag blog              # AND match: must have both
+todo list --week --project rb                # rb tasks due this week
+todo list --today --list personal            # combine with --list
+```
+
+Only one view flag at a time (`--today --tomorrow` will error). `--tag` and `--project` can be added on top of any view.
+
 ### Dates
 Dates accept: `today`, `tomorrow`, weekday names (`mon`, `friday`, ...), or ISO `YYYY-MM-DD`.
 Use `--due clear` / `--project clear` / `--tag clear` to remove a field on edit.
@@ -70,7 +91,7 @@ todo config set default_list personal        # change default list (same as `tod
 todo config set data_dir ~/Dropbox/todos     # change where tasks live
 ```
 
-More commands (view filters, web UI) land in upcoming phases.
+More commands (web UI with drag-reorder) land in upcoming phases.
 
 ## Where things live
 

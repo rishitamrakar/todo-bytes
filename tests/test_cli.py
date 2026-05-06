@@ -5,7 +5,7 @@ Uses typer.testing.CliRunner to invoke commands in-process and inspect output.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -447,3 +447,127 @@ def test_per_list_ids_are_independent_via_cli(ready_to_use, runner: CliRunner):
     personal_tasks = store.load_tasks("personal", cfg.load_config())
     assert [t.id for t in work_tasks] == [1, 2]
     assert [t.id for t in personal_tasks] == [1, 2]
+
+
+# ---------- view filters ----------
+
+def test_list_today_filters_to_today_only(ready_to_use, runner: CliRunner):
+    today_str = date.today().isoformat()
+    tomorrow_str = (date.today() + timedelta(days=1)).isoformat()
+    runner.invoke(app, ["add", "due-today", "--due", today_str])
+    runner.invoke(app, ["add", "due-tomorrow", "--due", tomorrow_str])
+    runner.invoke(app, ["add", "no-due"])
+    result = runner.invoke(app, ["list", "--today"])
+    assert result.exit_code == 0
+    assert "due-today" in result.stdout
+    assert "due-tomorrow" not in result.stdout
+    assert "no-due" not in result.stdout
+
+
+def test_list_overdue_picks_past_open_only(ready_to_use, runner: CliRunner):
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    today_str = date.today().isoformat()
+    runner.invoke(app, ["add", "missed", "--due", yesterday])
+    runner.invoke(app, ["add", "on-time", "--due", today_str])
+    runner.invoke(app, ["add", "no-due"])
+    result = runner.invoke(app, ["list", "--overdue"])
+    assert result.exit_code == 0
+    assert "missed" in result.stdout
+    assert "on-time" not in result.stdout
+    assert "no-due" not in result.stdout
+
+
+def test_list_tomorrow(ready_to_use, runner: CliRunner):
+    tomorrow_str = (date.today() + timedelta(days=1)).isoformat()
+    runner.invoke(app, ["add", "do-tomorrow", "--due", tomorrow_str])
+    runner.invoke(app, ["add", "do-today", "--due", date.today().isoformat()])
+    result = runner.invoke(app, ["list", "--tomorrow"])
+    assert result.exit_code == 0
+    assert "do-tomorrow" in result.stdout
+    assert "do-today" not in result.stdout
+
+
+def test_list_no_due(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["add", "no-due-task"])
+    runner.invoke(app, ["add", "with-due", "--due", "2026-12-31"])
+    result = runner.invoke(app, ["list", "--no-due"])
+    assert result.exit_code == 0
+    assert "no-due-task" in result.stdout
+    assert "with-due" not in result.stdout
+
+
+def test_list_done_shows_done_tasks(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["add", "finish-me"])
+    runner.invoke(app, ["add", "keep-open"])
+    runner.invoke(app, ["done", "1"])
+    result = runner.invoke(app, ["list", "--done"])
+    assert result.exit_code == 0
+    assert "finish-me" in result.stdout
+    assert "keep-open" not in result.stdout
+
+
+def test_list_all_shows_open_and_done(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["add", "open-task"])
+    runner.invoke(app, ["add", "done-task"])
+    runner.invoke(app, ["done", "2"])
+    result = runner.invoke(app, ["list", "--all"])
+    assert result.exit_code == 0
+    assert "open-task" in result.stdout
+    assert "done-task" in result.stdout
+    # --all view shows status column
+    assert "open" in result.stdout.lower()
+    assert "done" in result.stdout.lower()
+
+
+def test_list_rejects_two_view_flags(ready_to_use, runner: CliRunner):
+    result = runner.invoke(app, ["list", "--today", "--tomorrow"])
+    assert result.exit_code == 1
+    assert "only one view" in result.stdout.lower()
+
+
+def test_list_with_tag_filter(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["add", "alpha-task", "--tag", "work"])
+    runner.invoke(app, ["add", "beta-task", "--tag", "personal"])
+    runner.invoke(app, ["add", "gamma-task", "--tag", "work", "--tag", "blog"])
+    result = runner.invoke(app, ["list", "--tag", "work"])
+    assert result.exit_code == 0
+    assert "alpha-task" in result.stdout
+    assert "gamma-task" in result.stdout
+    assert "beta-task" not in result.stdout
+
+
+def test_list_with_tag_and_match(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["add", "only-work", "--tag", "work"])
+    runner.invoke(app, ["add", "work-and-blog", "--tag", "work", "--tag", "blog"])
+    result = runner.invoke(app, ["list", "--tag", "work", "--tag", "blog"])
+    assert result.exit_code == 0
+    assert "work-and-blog" in result.stdout
+    assert "only-work" not in result.stdout
+
+
+def test_list_with_project_filter(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["add", "a", "--project", "rb"])
+    runner.invoke(app, ["add", "b", "--project", "finn"])
+    runner.invoke(app, ["add", "c"])
+    result = runner.invoke(app, ["list", "--project", "rb"])
+    assert result.exit_code == 0
+    assert "rb" in result.stdout
+    assert "finn" not in result.stdout
+
+
+def test_list_view_combined_with_list_flag(ready_to_use, runner: CliRunner):
+    """--today should respect --list."""
+    runner.invoke(app, ["lists", "create", "personal"])
+    today_str = date.today().isoformat()
+    runner.invoke(app, ["add", "work-today", "--due", today_str])
+    runner.invoke(app, ["add", "personal-today", "--due", today_str, "--list", "personal"])
+    result = runner.invoke(app, ["list", "--today", "--list", "personal"])
+    assert result.exit_code == 0
+    assert "personal-today" in result.stdout
+    assert "work-today" not in result.stdout
+
+
+def test_list_empty_view_friendly_message(ready_to_use, runner: CliRunner):
+    result = runner.invoke(app, ["list", "--today"])
+    assert result.exit_code == 0
+    assert "Nothing matches --today" in result.stdout

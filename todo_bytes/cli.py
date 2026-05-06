@@ -40,6 +40,7 @@ from todo_bytes.config import (
 )
 from todo_bytes.dates import parse_due
 from todo_bytes.models import STATUS_DONE, STATUS_OPEN, Task
+from todo_bytes import views
 from todo_bytes.store import (
     CannotDeleteDefaultListError,
     ListAlreadyExistsError,
@@ -279,16 +280,38 @@ def add_cmd(
 @app.command("list")
 def list_cmd(
     list_name: Optional[str] = typer.Option(None, "--list", "-l", help="Which list to show. Defaults to the configured default list."),
+    today: bool = typer.Option(False, "--today", help="Open tasks due today."),
+    overdue: bool = typer.Option(False, "--overdue", help="Open tasks past due."),
+    tomorrow: bool = typer.Option(False, "--tomorrow", help="Open tasks due tomorrow."),
+    week: bool = typer.Option(False, "--week", help="Open tasks due this week (Mon\u2013Sun)."),
+    next_week: bool = typer.Option(False, "--next-week", help="Open tasks due next week."),
+    no_due: bool = typer.Option(False, "--no-due", help="Open tasks with no due date."),
+    done: bool = typer.Option(False, "--done", help="Tasks done in the last 7 days."),
+    all_tasks: bool = typer.Option(False, "--all", help="All tasks (open + done) in this list."),
+    tag: Optional[list[str]] = typer.Option(None, "--tag", "-t", help="Only tasks with this tag (repeatable for AND match)."),
+    project: Optional[str] = typer.Option(None, "--project", "-p", help="Only tasks for this project."),
 ):
-    """Show all open tasks."""
+    """Show tasks. Without filter flags, shows all open tasks."""
     config = _load_config_or_exit()
     target_list = _resolve_list(list_name, config)
     tasks = _load_tasks_or_exit(target_list, config)
-    open_tasks = [t for t in tasks if t.status == STATUS_OPEN]
-    if not open_tasks:
-        console.print(f"[dim]No open tasks in '{target_list}'. Add one with [cyan]todo add \"...\"[/cyan][/dim]")
+
+    view_flags = {
+        "today": today, "overdue": overdue, "tomorrow": tomorrow,
+        "week": week, "next-week": next_week, "no-due": no_due,
+        "done": done, "all": all_tasks,
+    }
+    view_name = _pick_view_or_exit(view_flags)
+
+    filtered = _apply_view(tasks, view_name)
+    filtered = views.filter_by_tag(filtered, tag or [])
+    filtered = views.filter_by_project(filtered, project) if project else filtered
+    sorted_tasks = _sort_for_view(filtered, view_name)
+
+    if not sorted_tasks:
+        console.print(_empty_view_message(view_name, target_list))
         return
-    console.print(_render_tasks_table(open_tasks, target_list))
+    console.print(_render_tasks_table(sorted_tasks, target_list, view_name))
 
 
 @app.command("show")
@@ -368,6 +391,51 @@ def _resolve_list(list_name: Optional[str], config: Config) -> str:
     return list_name or config.default_list
 
 
+# ---------- view selection helpers ----------
+
+DEFAULT_VIEW = "open"  # used when no view flag is passed
+
+
+def _pick_view_or_exit(view_flags: dict[str, bool]) -> str:
+    """Return the chosen view name. Errors if more than one view flag is set."""
+    active = [name for name, on in view_flags.items() if on]
+    if len(active) > 1:
+        _exit_with_error(
+            f"Pick only one view at a time. Got: {', '.join('--' + n for n in active)}"
+        )
+    return active[0] if active else DEFAULT_VIEW
+
+
+def _apply_view(tasks: list[Task], view_name: str) -> list[Task]:
+    """Apply the date/status filter that corresponds to a view name."""
+    view_map = {
+        "open": lambda ts: [t for t in ts if t.status == STATUS_OPEN],
+        "today": views.filter_today,
+        "overdue": views.filter_overdue,
+        "tomorrow": views.filter_tomorrow,
+        "week": views.filter_this_week,
+        "next-week": views.filter_next_week,
+        "no-due": views.filter_no_due,
+        "done": views.filter_done_recent,
+        "all": views.filter_all,
+    }
+    return view_map[view_name](tasks)
+
+
+def _sort_for_view(tasks: list[Task], view_name: str) -> list[Task]:
+    if view_name in {"week", "next-week", "all"}:
+        return views.sort_by_due_then_priority(tasks)
+    if view_name == "done":
+        return views.sort_by_done_at_desc(tasks)
+    return views.sort_by_priority(tasks)
+
+
+def _empty_view_message(view_name: str, list_name: str) -> str:
+    if view_name == "open":
+        return f"[dim]No open tasks in '{list_name}'. Add one with [cyan]todo add \"...\"[/cyan][/dim]"
+    return f"[dim]Nothing matches --{view_name} in '{list_name}'.[/dim]"
+
+
 def _confirm_list_delete_or_exit(name: str, config: Config, skip: bool) -> None:
     if skip:
         return
@@ -424,21 +492,39 @@ def _build_edit_fields(
 
 # ---------- rendering ----------
 
-def _render_tasks_table(tasks: list[Task], list_name: str) -> Table:
-    table = Table(title=f"Open tasks — {list_name}", title_style="bold")
+VIEW_TITLES = {
+    "open": "Open tasks",
+    "today": "Due today",
+    "overdue": "Overdue",
+    "tomorrow": "Due tomorrow",
+    "week": "Due this week",
+    "next-week": "Due next week",
+    "no-due": "Open tasks (no due date)",
+    "done": "Done (last 7 days)",
+    "all": "All tasks",
+}
+
+
+def _render_tasks_table(tasks: list[Task], list_name: str, view_name: str = "open") -> Table:
+    title_prefix = VIEW_TITLES.get(view_name, "Tasks")
+    table = Table(title=f"{title_prefix} — {list_name}", title_style="bold")
     table.add_column("#", style="dim", justify="right")
     table.add_column("Task")
+    if view_name == "all":
+        table.add_column("Status")
     table.add_column("Due")
     table.add_column("Tags", style="cyan")
     table.add_column("Project", style="magenta")
-    for task in sorted(tasks, key=lambda t: t.priority):
-        table.add_row(
-            str(task.id),
-            task.name,
+    for task in tasks:
+        row = [str(task.id), task.name]
+        if view_name == "all":
+            row.append(task.status)
+        row.extend([
             str(task.due) if task.due else "",
             ", ".join(task.tags) if task.tags else "",
             task.project or "",
-        )
+        ])
+        table.add_row(*row)
     return table
 
 
