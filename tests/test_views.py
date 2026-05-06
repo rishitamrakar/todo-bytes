@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 from todo_bytes import views
 from todo_bytes.models import STATUS_DONE, STATUS_OPEN, Task
@@ -12,6 +12,10 @@ from todo_bytes.models import STATUS_DONE, STATUS_OPEN, Task
 
 def make_task(id_: int, name: str = "x", due=None, status=STATUS_OPEN,
               priority: int = 1, tags=None, project=None, done_at=None) -> Task:
+    # Tests pass plain dates for convenience — coerce to end-of-day datetime here
+    # so Task is internally consistent (Task.due is Optional[datetime]).
+    if isinstance(due, date) and not isinstance(due, datetime):
+        due = datetime.combine(due, time(23, 59, 59))
     return Task(
         id=id_, name=name, priority=priority, status=status,
         due=due, tags=tags or [], project=project,

@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 
 from todo_bytes import config as cfg
 from todo_bytes import store
-from todo_bytes.models import STATUS_DONE, STATUS_OPEN
+from todo_bytes.models import STATUS_DONE, STATUS_TODO
 from todo_bytes.server import create_app
 
 
@@ -24,7 +24,10 @@ def client(fake_home: Path) -> TestClient:
     """Init config + a 'work' list, then return a FastAPI TestClient."""
     data_dir = fake_home / "tasks"
     data_dir.mkdir(parents=True)
-    (data_dir / "work.yaml").write_text(yaml.safe_dump({"list": "work", "tasks": []}))
+    (data_dir / "work.yaml").write_text(yaml.safe_dump({
+        "project": {"name": "work", "status": "todo"},
+        "tasks": [],
+    }))
     config = cfg.Config(data_dir=str(data_dir), default_list="work", ui_port=8765)
     cfg.save_config(config)
     return TestClient(create_app())
@@ -92,6 +95,95 @@ def test_delete_missing_list(client: TestClient):
     assert response.status_code == 404
 
 
+# ---------- project metadata endpoints ----------
+
+def test_get_project_returns_metadata_and_counts(client: TestClient):
+    client.post("/api/tasks", json={"list": "work", "name": "a"})
+    response = client.get("/api/projects/work")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "work"
+    assert body["status"] == "todo"
+    assert body["open"] == 1
+    assert body["done"] == 0
+    assert body["completion_pct"] == 0
+
+
+def test_get_project_missing(client: TestClient):
+    response = client.get("/api/projects/nope")
+    assert response.status_code == 404
+
+
+def test_patch_project_updates_description_and_status(client: TestClient):
+    response = client.patch(
+        "/api/projects/work",
+        json={"description": "My main work tasks", "status": "in-progress"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["description"] == "My main work tasks"
+    assert body["status"] == "in-progress"
+
+
+def test_patch_project_invalid_status(client: TestClient):
+    response = client.patch("/api/projects/work", json={"status": "bogus"})
+    assert response.status_code == 422  # Pydantic Literal rejects invalid status
+
+
+def test_patch_project_missing(client: TestClient):
+    response = client.patch("/api/projects/nope", json={"description": "x"})
+    assert response.status_code == 404
+
+
+def test_get_lists_includes_project_status(client: TestClient):
+    client.patch("/api/projects/work", json={"status": "in-progress"})
+    response = client.get("/api/lists")
+    work = next(l for l in response.json()["lists"] if l["name"] == "work")
+    assert work["status"] == "in-progress"
+    assert "completion_pct" in work
+
+
+def test_patch_project_sets_tags(client: TestClient):
+    response = client.patch("/api/projects/work", json={"tags": ["work", "client-A"]})
+    assert response.status_code == 200
+    assert response.json()["tags"] == ["work", "client-A"]
+
+
+def test_get_lists_includes_project_tags(client: TestClient):
+    client.patch("/api/projects/work", json={"tags": ["work"]})
+    response = client.get("/api/lists")
+    work = next(l for l in response.json()["lists"] if l["name"] == "work")
+    assert work["tags"] == ["work"]
+
+
+# ---------- task description + notes ----------
+
+def test_create_task_with_description_and_notes(client: TestClient):
+    payload = {
+        "list": "work",
+        "name": "big task",
+        "description": "Auth bug from PR #234",
+        "notes": "- looked at module X\n- found root cause\n- testing fix",
+    }
+    response = client.post("/api/tasks", json=payload)
+    assert response.status_code == 201
+    body = response.json()
+    assert body["description"] == "Auth bug from PR #234"
+    assert "root cause" in body["notes"]
+
+
+def test_patch_task_updates_description_and_notes(client: TestClient):
+    client.post("/api/tasks", json={"list": "work", "name": "x"})
+    response = client.patch(
+        "/api/tasks/work/1",
+        json={"description": "updated", "notes": "- a\n- b"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["description"] == "updated"
+    assert body["notes"] == "- a\n- b"
+
+
 # ---------- POST /api/tasks ----------
 
 def test_create_task_minimal(client: TestClient):
@@ -100,23 +192,22 @@ def test_create_task_minimal(client: TestClient):
     body = response.json()
     assert body["id"] == 1
     assert body["name"] == "first"
-    assert body["status"] == "open"
+    assert body["status"] == "todo"
 
 
 def test_create_task_with_all_fields(client: TestClient):
     payload = {
         "list": "work",
         "name": "big task",
-        "due": "2026-12-31",
+        "due": "2026-12-31T23:59:59",
         "tags": ["work", "blog"],
-        "project": "rb",
     }
     response = client.post("/api/tasks", json=payload)
     assert response.status_code == 201
     body = response.json()
-    assert body["due"] == "2026-12-31"
+    assert body["due"].startswith("2026-12-31")
     assert body["tags"] == ["work", "blog"]
-    assert body["project"] == "rb"
+    assert body["project"] == "work"  # auto-set to the parent project
 
 
 def test_create_task_in_missing_list(client: TestClient):
@@ -174,11 +265,13 @@ def test_patch_task_clears_project_with_null(client: TestClient):
 
 def test_patch_task_skips_omitted_fields(client: TestClient):
     """Fields not in the payload should not be touched."""
-    client.post("/api/tasks", json={"list": "work", "name": "x", "project": "rb"})
+    client.post("/api/tasks", json={"list": "work", "name": "x"})
+    # Set tags via patch
+    client.patch("/api/tasks/work/1", json={"tags": ["keep"]})
     response = client.patch("/api/tasks/work/1", json={"name": "renamed"})
     body = response.json()
     assert body["name"] == "renamed"
-    assert body["project"] == "rb"  # untouched
+    assert body["tags"] == ["keep"]  # untouched
 
 
 def test_patch_task_missing(client: TestClient):

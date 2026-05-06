@@ -83,7 +83,76 @@ body {
 .main {
   padding: 24px 32px;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
+
+.main-body {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 24px;
+  flex: 1;
+  min-height: 0;
+}
+
+@media (max-width: 1100px) {
+  .main-body { grid-template-columns: 1fr; }
+}
+
+.tasks-pane { min-width: 0; }
+.side-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Stats card */
+.stats-card, .side-placeholder {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.stats-card h3 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: var(--text-dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stats-numbers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.stats-numbers > div { display: flex; flex-direction: column; }
+.stat-value { font-size: 22px; font-weight: 600; color: var(--text); }
+.stat-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--row-hover);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--success);
+  width: 0%;
+  transition: width 0.3s;
+}
+
+.side-placeholder {
+  color: var(--text-dim);
+  font-size: 13px;
+  font-style: italic;
+}
+.side-placeholder p { margin: 0; }
 
 .main-header {
   display: flex;
@@ -143,7 +212,7 @@ body {
 
 .task {
   display: grid;
-  grid-template-columns: 24px 1fr auto auto auto auto;
+  grid-template-columns: 20px 22px 1fr auto auto auto auto;
   align-items: center;
   gap: 12px;
   padding: 10px 12px;
@@ -154,7 +223,7 @@ body {
 }
 
 .task:hover { background: var(--row-hover); }
-.task.done { opacity: 0.55; }
+.task.done { opacity: 0.6; }
 .task.done .task-name { text-decoration: line-through; }
 
 .task .drag-handle {
@@ -162,6 +231,131 @@ body {
   color: var(--text-dim);
   user-select: none;
   text-align: center;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.task:hover .drag-handle { opacity: 1; }
+
+/* Status circle — click to mark done. Filled when done. */
+.status-circle {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--text-dim);
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.1s, background 0.1s;
+}
+
+.status-circle:hover {
+  border-color: var(--success);
+}
+.status-circle:hover::before {
+  content: '✓';
+  color: var(--success);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.task.done .status-circle {
+  background: var(--success);
+  border-color: var(--success);
+  cursor: default;
+}
+.task.done .status-circle::before {
+  content: '✓';
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* In-progress: half-filled accent ring */
+.task.in-progress .status-circle {
+  border-color: var(--accent);
+  background: linear-gradient(90deg, var(--accent) 50%, transparent 50%);
+}
+
+/* Hold: paused look */
+.task.hold .status-circle {
+  border-color: var(--warning);
+}
+.task.hold .status-circle::before {
+  content: '⏸';
+  color: var(--warning);
+  font-size: 10px;
+}
+.task.hold .task-name { color: var(--text-dim); }
+
+/* Cancelled: struck-through, very faded */
+.task.cancelled {
+  opacity: 0.5;
+}
+.task.cancelled .task-name {
+  text-decoration: line-through;
+  color: var(--text-dim);
+}
+.task.cancelled .status-circle {
+  border-color: var(--danger);
+}
+.task.cancelled .status-circle::before {
+  content: '×';
+  color: var(--danger);
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* Edit modal — small meta line at bottom */
+.meta-info {
+  font-size: 12px;
+  color: var(--text-dim);
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.meta-label { font-weight: 600; }
+
+/* Date + time pair (replaces native datetime-local which has bad UX) */
+.date-time-inputs {
+  display: flex;
+  gap: 8px;
+}
+.date-time-inputs input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--card);
+}
+.date-time-inputs input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.date-time-inputs input[type="time"] {
+  flex: 0 0 110px;
+}
+
+/* Status dropdown in edit modal */
+.modal-card select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--card);
+  color: var(--text);
+}
+.modal-card select:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .task .task-name {
@@ -199,7 +393,10 @@ body {
 .task .actions {
   display: flex;
   gap: 4px;
+  opacity: 0;
+  transition: opacity 0.1s;
 }
+.task:hover .actions { opacity: 1; }
 
 .task .icon-btn {
   background: transparent;
@@ -212,12 +409,58 @@ body {
 }
 .task .icon-btn:hover { background: var(--row-hover); color: var(--text); border-color: var(--border); }
 .task .icon-btn.danger:hover { color: var(--danger); }
-.task .icon-btn.success:hover { color: var(--success); }
 
 .empty-state {
   text-align: center;
   padding: 48px 16px;
   color: var(--text-dim);
+}
+
+/* Inline quick-add input — sits at the bottom of the task list */
+.quick-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-top: 4px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  transition: border-color 0.1s, background 0.1s;
+}
+
+.quick-add:focus-within {
+  border-color: var(--accent);
+  border-style: solid;
+  background: var(--card);
+}
+
+.quick-add-icon {
+  color: var(--text-dim);
+  font-size: 16px;
+  font-weight: 500;
+  user-select: none;
+  width: 16px;
+  text-align: center;
+}
+
+.quick-add input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text);
+  padding: 0;
+}
+
+.quick-add input::placeholder {
+  color: var(--text-dim);
+}
+
+.quick-add[hidden] {
+  display: none;
 }
 
 /* Buttons */
@@ -241,6 +484,192 @@ body {
 }
 .btn-secondary:hover { background: var(--row-hover); }
 
+/* Sidebar enhancements: section label, status filter, inline new-project form, edit hover button on each row */
+.sidebar-section-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  margin: 4px 0 4px 4px;
+}
+.icon-btn-mini {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 4px;
+}
+.icon-btn-mini:hover { color: var(--text); }
+
+/* Two filter chips: Status + Projects, side-by-side */
+.filter-chips {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.filter-chip {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text);
+  font-family: inherit;
+}
+.filter-chip:hover { background: var(--row-hover); }
+.filter-chip.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+.filter-chip .caret { opacity: 0.6; margin-left: 4px; }
+
+.filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.filter-panel[hidden] { display: none; }
+.filter-panel label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+.filter-panel-header {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+.filter-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.btn-mini { padding: 3px 8px; font-size: 11px; }
+
+.list-item {
+  position: relative;
+}
+.list-item .edit-btn {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 6px;
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.list-item:hover .edit-btn { opacity: 0.7; }
+.list-item .edit-btn:hover { opacity: 1; }
+
+.list-item .project-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 6px;
+  background: var(--text-dim);
+}
+.list-item.status-todo .project-status-dot { background: var(--text-dim); }
+.list-item.status-in-progress .project-status-dot { background: var(--accent); }
+.list-item.status-done .project-status-dot { background: var(--success); }
+.list-item.status-hold .project-status-dot { background: var(--warning); }
+.list-item.status-cancelled .project-status-dot { background: var(--danger); }
+
+/* 'All visible' pseudo-project at the top of the sidebar list */
+.all-projects-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: none;
+  background: var(--bg);
+  text-align: left;
+  font-size: 14px;
+  color: var(--text);
+  font-weight: 500;
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+}
+.all-projects-item:hover { background: var(--row-hover); }
+.all-projects-item.active { background: var(--accent); color: white; border-color: var(--accent); }
+.all-projects-item .all-icon { margin-right: 8px; opacity: 0.7; }
+.all-projects-item .count { font-size: 12px; opacity: 0.7; }
+.all-projects-item.active .count { opacity: 0.95; }
+
+/* Project badge shown on each task row in the All view */
+.task .project-badge {
+  background: var(--row-hover);
+  color: var(--text-dim);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.sidebar-quick-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  margin-top: 4px;
+}
+.sidebar-quick-add:focus-within {
+  border-color: var(--accent);
+  border-style: solid;
+}
+.sidebar-quick-add input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text);
+  padding: 0;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: white;
+  border: 1px solid var(--danger);
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+.btn-danger:hover { opacity: 0.9; }
+
 /* Modals */
 .modal {
   position: fixed;
@@ -250,6 +679,12 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 100;
+}
+
+/* The HTML `hidden` attribute should win over `display: flex` above.
+   Higher specificity (.modal[hidden] = 2 selectors) ensures this. */
+.modal[hidden] {
+  display: none;
 }
 
 .modal-card {
@@ -277,19 +712,36 @@ body {
   font-weight: 500;
 }
 
-.modal-card input {
+.modal-card input,
+.modal-card textarea {
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 14px;
   font-family: inherit;
   color: var(--text);
+  background: var(--card);
 }
 
-.modal-card input:focus {
+.modal-card textarea {
+  resize: vertical;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
+}
+
+.modal-card input:focus,
+.modal-card textarea:focus {
   outline: none;
   border-color: var(--accent);
 }
+
+/* Tiny doc icon shown on a task row when description or notes are non-empty */
+.task .has-content {
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+.task .has-content:hover { color: var(--text); }
 
 .modal-actions {
   display: flex;

@@ -12,14 +12,72 @@
       <div class="sidebar-header">
         <h1>todo-bytes</h1>
       </div>
+
+      <div class="sidebar-section-label">
+        <span>Projects</span>
+      </div>
+
+      <div class="filter-chips">
+        <button class="filter-chip" id="status-filter-btn" title="Filter projects by status">
+          Status <span class="caret">▾</span>
+        </button>
+        <button class="filter-chip" id="tag-filter-btn" title="Filter projects by tag">
+          Tags <span class="caret">▾</span>
+        </button>
+      </div>
+
+      <div class="filter-panel" id="status-filter" hidden>
+        <div class="filter-panel-header">Show projects with status:</div>
+        <label><input type="checkbox" data-status="todo"> To Do</label>
+        <label><input type="checkbox" data-status="in-progress"> In Progress</label>
+        <label><input type="checkbox" data-status="done"> Done</label>
+        <label><input type="checkbox" data-status="hold"> Hold</label>
+        <label><input type="checkbox" data-status="cancelled"> Cancelled</label>
+        <div class="filter-actions">
+          <button type="button" class="btn-secondary btn-mini" data-action="select-all" data-target="status">Select all</button>
+          <button type="button" class="btn-secondary btn-mini" data-action="deselect-all" data-target="status">Deselect all</button>
+          <span style="flex:1"></span>
+          <button type="button" class="btn-secondary btn-mini" data-action="cancel" data-target="status">Cancel</button>
+          <button type="button" class="btn-primary btn-mini" data-action="apply" data-target="status">Apply</button>
+        </div>
+      </div>
+
+      <div class="filter-panel" id="tag-filter" hidden>
+        <div class="filter-panel-header">Show projects with tag:</div>
+        <div id="tag-filter-list"></div>
+        <div class="filter-actions">
+          <button type="button" class="btn-secondary btn-mini" data-action="select-all" data-target="tag">Select all</button>
+          <button type="button" class="btn-secondary btn-mini" data-action="deselect-all" data-target="tag">Deselect all</button>
+          <span style="flex:1"></span>
+          <button type="button" class="btn-secondary btn-mini" data-action="cancel" data-target="tag">Cancel</button>
+          <button type="button" class="btn-primary btn-mini" data-action="apply" data-target="tag">Apply</button>
+        </div>
+      </div>
+
+      <button class="all-projects-item" id="all-projects-btn">
+        <span style="display:flex; align-items:center; flex:1;">
+          <span class="all-icon">☰</span>
+          All Projects
+        </span>
+        <span class="count" id="all-count">0/0</span>
+      </button>
+
       <nav class="lists" id="lists"></nav>
-      <button class="btn-secondary" id="new-list-btn">+ New list</button>
+
+      <form class="sidebar-quick-add" id="new-project-form" autocomplete="off">
+        <span class="quick-add-icon">+</span>
+        <input
+          type="text"
+          id="new-project-input"
+          placeholder="Type a project name…"
+          autocomplete="off"
+        />
+      </form>
     </aside>
 
     <main class="main">
       <header class="main-header">
         <h2 id="list-title">Loading…</h2>
-        <button class="btn-primary" id="add-task-btn">+ Add task</button>
       </header>
 
       <nav class="views" id="views">
@@ -34,38 +92,92 @@
         <button class="view-tab" data-view="all">All</button>
       </nav>
 
-      <div class="hint" id="reorder-hint">
-        Drag rows to reorder priority. Top of list = highest priority.
-      </div>
+      <div class="main-body">
+        <section class="tasks-pane">
+          <div class="hint" id="reorder-hint">
+            Drag rows to reorder priority. Top of list = highest priority.
+          </div>
 
-      <ul class="tasks" id="tasks"></ul>
-      <div class="empty-state" id="empty-state" hidden>
-        <p>Nothing here yet.</p>
+          <ul class="tasks" id="tasks"></ul>
+
+          <form class="quick-add" id="quick-add" autocomplete="off">
+            <span class="quick-add-icon">+</span>
+            <input
+              type="text"
+              id="quick-add-input"
+              placeholder="Type to add a task, then press Enter…"
+              autocomplete="off"
+            />
+          </form>
+
+          <div class="empty-state" id="empty-state" hidden>
+            <p>Nothing here yet.</p>
+          </div>
+        </section>
+
+        <aside class="side-pane">
+          <div class="stats-card">
+            <h3>Progress</h3>
+            <div class="stats-numbers">
+              <div><span class="stat-value" id="stat-open">—</span><span class="stat-label">Open</span></div>
+              <div><span class="stat-value" id="stat-done">—</span><span class="stat-label">Done</span></div>
+              <div><span class="stat-value" id="stat-pct">—</span><span class="stat-label">Complete</span></div>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="progress-fill"></div>
+            </div>
+          </div>
+
+          <div class="side-placeholder">
+            <p>More widgets coming soon — charts, tag breakdown, weekly trend.</p>
+          </div>
+        </aside>
       </div>
     </main>
   </div>
 
-  <!-- Add/Edit task modal -->
+  <!-- Edit task modal -->
   <div class="modal" id="task-modal" hidden>
     <div class="modal-card">
-      <h3 id="modal-title">Add task</h3>
+      <h3 id="modal-title">Edit task</h3>
       <form id="task-form">
         <label>
           Name
           <input type="text" name="name" required autocomplete="off" />
         </label>
         <label>
-          Due date
-          <input type="date" name="due" />
+          Due
+          <div class="date-time-inputs">
+            <input type="date" name="due_date" />
+            <input type="time" name="due_time" title="Optional. Defaults to end of day." />
+          </div>
         </label>
         <label>
           Tags (comma-separated)
           <input type="text" name="tags" autocomplete="off" placeholder="work, blog" />
         </label>
         <label>
-          Project
-          <input type="text" name="project" autocomplete="off" />
+          Status
+          <select name="status">
+            <option value="todo">To Do</option>
+            <option value="in-progress">In Progress</option>
+            <option value="done">Done</option>
+            <option value="hold">Hold</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
         </label>
+        <label>
+          Description
+          <textarea name="description" rows="2" placeholder="Short summary or context"></textarea>
+        </label>
+        <label>
+          Notes
+          <textarea name="notes" rows="6" placeholder="- bullet point&#10;- another bullet&#10;- links, thoughts, anything"></textarea>
+        </label>
+        <div class="meta-info">
+          <span><span class="meta-label">Project:</span> <span id="meta-project">—</span></span>
+          <span><span class="meta-label">Created:</span> <span id="meta-created">—</span></span>
+        </div>
         <div class="modal-actions">
           <button type="button" class="btn-secondary" id="modal-cancel">Cancel</button>
           <button type="submit" class="btn-primary">Save</button>
@@ -74,18 +186,45 @@
     </div>
   </div>
 
-  <!-- New list modal -->
-  <div class="modal" id="list-modal" hidden>
+  <!-- Edit project modal -->
+  <div class="modal" id="project-modal" hidden>
     <div class="modal-card">
-      <h3>New list</h3>
-      <form id="list-form">
+      <h3>Edit project</h3>
+      <form id="project-form">
         <label>
-          List name
-          <input type="text" name="name" required autocomplete="off" />
+          Name
+          <input type="text" name="name" disabled />
+        </label>
+        <label>
+          Description
+          <input type="text" name="description" autocomplete="off" />
+        </label>
+        <label>
+          Status
+          <select name="status">
+            <option value="todo">To Do</option>
+            <option value="in-progress">In Progress</option>
+            <option value="done">Done</option>
+            <option value="hold">Hold</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </label>
+        <label>
+          Due
+          <div class="date-time-inputs">
+            <input type="date" name="due_date" />
+            <input type="time" name="due_time" title="Optional. Defaults to end of day." />
+          </div>
+        </label>
+        <label>
+          Tags (comma-separated)
+          <input type="text" name="tags" autocomplete="off" placeholder="work, client-A" />
         </label>
         <div class="modal-actions">
-          <button type="button" class="btn-secondary" id="list-cancel">Cancel</button>
-          <button type="submit" class="btn-primary">Create</button>
+          <button type="button" class="btn-danger" id="project-delete">Delete</button>
+          <span style="flex:1"></span>
+          <button type="button" class="btn-secondary" id="project-cancel">Cancel</button>
+          <button type="submit" class="btn-primary">Save</button>
         </div>
       </form>
     </div>

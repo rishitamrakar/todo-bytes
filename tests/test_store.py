@@ -20,7 +20,10 @@ def setup_list(fake_home: Path):
     """Init config + an empty 'work' list, return the loaded Config."""
     data_dir = fake_home / "tasks"
     data_dir.mkdir(parents=True)
-    (data_dir / "work.yaml").write_text(yaml.safe_dump({"list": "work", "tasks": []}))
+    (data_dir / "work.yaml").write_text(yaml.safe_dump({
+        "project": {"name": "work", "status": "todo"},
+        "tasks": [],
+    }))
     config = cfg.Config(data_dir=str(data_dir), default_list="work", ui_port=8765)
     cfg.save_config(config)
     return config
@@ -47,14 +50,15 @@ def test_load_missing_list_raises(setup_list):
 def test_save_then_load_roundtrip(setup_list):
     task = Task(
         id=1, name="hello", priority=1,
-        due=date(2026, 5, 10), tags=["work", "blog"], project="rb",
+        due=datetime(2026, 5, 10, 23, 59, 59),
+        tags=["work", "blog"], project="rb",
     )
     store.save_tasks("work", [task], setup_list)
     loaded = store.load_tasks("work", setup_list)
     assert len(loaded) == 1
     assert loaded[0].id == 1
     assert loaded[0].name == "hello"
-    assert loaded[0].due == date(2026, 5, 10)
+    assert loaded[0].due == datetime(2026, 5, 10, 23, 59, 59)
     assert loaded[0].tags == ["work", "blog"]
     assert loaded[0].project == "rb"
 
@@ -101,14 +105,13 @@ def test_add_task_assigns_id_and_priority(setup_list):
 def test_add_task_with_all_fields(setup_list):
     task = store.add_task(
         "work", "with stuff",
-        due=date(2026, 5, 10),
+        due=datetime(2026, 5, 10, 23, 59, 59),
         tags=["a", "b"],
-        project="proj",
         config=setup_list,
     )
-    assert task.due == date(2026, 5, 10)
+    assert task.due == datetime(2026, 5, 10, 23, 59, 59)
     assert task.tags == ["a", "b"]
-    assert task.project == "proj"
+    assert task.project == "work"  # auto-set to parent project name
     assert task.status == STATUS_OPEN
     assert task.done_at is None
     assert isinstance(task.created, datetime)
@@ -133,19 +136,19 @@ def test_update_task_changes_field(setup_list):
 
 def test_update_task_partial_update(setup_list):
     """Only the fields passed in kwargs should change — other fields are untouched."""
-    store.add_task("work", "keep me", project="orig", config=setup_list)
+    store.add_task("work", "keep me", config=setup_list)
     store.update_task("work", 1, config=setup_list, name="new name")
     task = store.find_task(store.load_tasks("work", setup_list), 1)
     assert task.name == "new name"
-    assert task.project == "orig"  # untouched, wasn't in kwargs
+    assert task.project == "work"  # auto-set, untouched by partial update
 
 
 def test_update_task_none_clears_field(setup_list):
     """Passing None *is* meaningful — it clears the field. Callers control what to pass."""
-    store.add_task("work", "x", project="orig", config=setup_list)
-    store.update_task("work", 1, config=setup_list, project=None)
+    store.add_task("work", "x", config=setup_list)
+    store.update_task("work", 1, config=setup_list, due=None)
     task = store.find_task(store.load_tasks("work", setup_list), 1)
-    assert task.project is None
+    assert task.due is None
 
 
 def test_update_unknown_field_raises(setup_list):
@@ -221,7 +224,9 @@ def test_create_list_creates_yaml_file(setup_list):
     path = store.create_list("personal", setup_list)
     assert path.is_file()
     raw = yaml.safe_load(path.read_text())
-    assert raw == {"list": "personal", "tasks": []}
+    assert raw["project"]["name"] == "personal"
+    assert raw["project"]["status"] == "todo"
+    assert raw["tasks"] == []
 
 
 def test_create_list_rejects_duplicate(setup_list):
