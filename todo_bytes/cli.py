@@ -633,21 +633,19 @@ def _render_tasks_table(tasks: list[Task], project_name: str, view_name: str = "
     table = Table(title=f"{title_prefix} — {project_name}", title_style="bold")
     table.add_column("#", style="dim", justify="right")
     table.add_column("Task")
-    if view_name == "all":
-        table.add_column("Status")
+    table.add_column("Status")
     table.add_column("Due")
     table.add_column("Tags", style="cyan")
     table.add_column("Project", style="magenta")
     for task in tasks:
-        row = [str(task.id), task.name]
-        if view_name == "all":
-            row.append(task.status)
-        row.extend([
+        table.add_row(
+            str(task.id),
+            task.name,
+            task.status,
             _format_due(task.due),
             ", ".join(task.tags) if task.tags else "",
             task.project or "",
-        ])
-        table.add_row(*row)
+        )
     return table
 
 

@@ -172,47 +172,51 @@
     <div class="modal-card">
       <h3 id="modal-title">Edit task</h3>
       <form id="task-form">
-        <label>
-          Name
-          <input type="text" name="name" required autocomplete="off" />
-        </label>
-        <label>
-          Due
-          <div class="date-time-inputs">
-            <input type="date" name="due_date" />
-            <input type="time" name="due_time" title="Optional. Defaults to end of day." />
+        <div class="form-scroll">
+          <label>
+            Name
+            <input type="text" name="name" required autocomplete="off" />
+          </label>
+          <label>
+            Due
+            <div class="date-time-inputs">
+              <input type="date" name="due_date" />
+              <input type="time" name="due_time" title="Optional. Defaults to end of day." />
+            </div>
+          </label>
+          <div class="row-2">
+            <label>
+              Project
+              <select name="project"></select>
+            </label>
+            <label>
+              Status
+              <select name="status">
+                <option value="todo">To Do</option>
+                <option value="in-progress">In Progress</option>
+                <option value="done">Done</option>
+                <option value="hold">Hold</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </label>
           </div>
-        </label>
-        <label>
-          Project
-          <select name="project"></select>
-        </label>
-        <label>
-          Tags (comma-separated)
-          <input type="text" name="tags" autocomplete="off" placeholder="work, blog" />
-        </label>
-        <label>
-          Status
-          <select name="status">
-            <option value="todo">To Do</option>
-            <option value="in-progress">In Progress</option>
-            <option value="done">Done</option>
-            <option value="hold">Hold</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-        </label>
-        <label>
-          Description
-          <textarea name="description" rows="2" placeholder="Short summary or context"></textarea>
-        </label>
-        <label>
-          Notes
-          <textarea name="notes" rows="6" placeholder="- bullet point&#10;- another bullet&#10;- links, thoughts, anything"></textarea>
-        </label>
-        <div class="meta-info">
-          <span><span class="meta-label">Created:</span> <span id="meta-created">—</span></span>
+          <label>
+            Tags (comma-separated)
+            <input type="text" name="tags" autocomplete="off" placeholder="work, blog" />
+          </label>
+          <label>
+            Description
+            <textarea name="description" rows="2" placeholder="Short summary or context"></textarea>
+          </label>
+          <details class="notes-details" id="notes-details">
+            <summary>Notes</summary>
+            <textarea name="notes" rows="4" placeholder="- bullet point&#10;- another bullet&#10;- links, thoughts, anything"></textarea>
+          </details>
+          <div class="meta-info">
+            <span><span class="meta-label">Created:</span> <span id="meta-created">—</span></span>
+          </div>
         </div>
-        <div class="modal-actions">
+        <div class="modal-actions sticky-actions">
           <button type="button" class="btn-secondary" id="modal-cancel">Cancel</button>
           <button type="submit" class="btn-primary">Save</button>
         </div>

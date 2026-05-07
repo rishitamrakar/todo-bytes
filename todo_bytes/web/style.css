@@ -880,9 +880,66 @@ body {
   max-height: 100%;
   border-radius: 0;
   box-shadow: -10px 0 40px rgba(0, 0, 0, 0.15);
-  overflow-y: auto;
+  overflow-y: auto;              /* the card itself is the scroll container */
   border-left: 1px solid var(--border);
   animation: slide-in-right 0.18s ease-out;
+  padding: 20px 24px 0;
+}
+
+.modal.side-panel .modal-card h3 {
+  margin: 0 0 12px;
+}
+
+.modal.side-panel #task-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.modal.side-panel .form-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* No flex:1 — just sizes to content; the card handles scroll. */
+}
+
+.modal.side-panel .row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.modal.side-panel .notes-details {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+.modal.side-panel .notes-details summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-dim);
+  font-weight: 500;
+  user-select: none;
+  padding: 2px 0;
+}
+.modal.side-panel .notes-details[open] summary {
+  margin-bottom: 6px;
+}
+.modal.side-panel .notes-details textarea {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.sticky-actions {
+  position: sticky;
+  bottom: 0;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  padding: 12px 24px;
+  /* negative side margins so the bar spans full panel width despite
+     the card's horizontal padding */
+  margin: 12px -24px 0;
+  z-index: 1;
 }
 
 .modal.side-panel.closing .modal-card {
