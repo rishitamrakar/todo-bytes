@@ -214,6 +214,27 @@ def test_add_task_defaults_status_to_todo(setup_project):
 
 # ---------- move task ----------
 
+def test_move_task_does_not_leave_stale_copy_in_source(setup_project):
+    """Regression: moving a task whose id differs from target's next id used
+    to leave a stale copy in source because the task object's id was
+    mutated before the source-removal filter ran.
+    """
+    store.create_project("personal", config=setup_project)
+    # Source has two tasks; we'll move the second one (id=2)
+    store.add_task("work", "keep me", config=setup_project)        # id=1 in work
+    store.add_task("work", "move me", config=setup_project)        # id=2 in work
+    # Target is empty, so target's next_id will be 1 (different from source id=2)
+    store.move_task("work", 2, "personal", config=setup_project)
+    work_tasks = store.load_tasks("work", setup_project)
+    assert len(work_tasks) == 1
+    assert work_tasks[0].name == "keep me"
+    assert work_tasks[0].id == 1
+    personal_tasks = store.load_tasks("personal", setup_project)
+    assert len(personal_tasks) == 1
+    assert personal_tasks[0].name == "move me"
+    assert personal_tasks[0].id == 1  # next_id in target
+
+
 def test_move_task_to_other_project(setup_project):
     store.create_project("personal", config=setup_project)
     store.add_task("work", "task A", tags=["a"], config=setup_project)

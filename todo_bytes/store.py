@@ -287,6 +287,10 @@ def move_task(
     projects are allowed by design.
 
     Returns the moved task with its new ID + project.
+
+    Order matters: we remove from source FIRST (using the original task_id),
+    then rehome to target. Doing it the other way around mutates task.id
+    before the source-removal filter runs, leaving stale copies in source.
     """
     if from_project == to_project:
         raise ValueError("Source and target projects must differ")
@@ -295,12 +299,18 @@ def move_task(
 
     source_tasks = load_tasks(from_project, config)
     task = find_task(source_tasks, task_id)
-    moved = _rehome_task(task, to_project, config)
-    _remove_and_save(source_tasks, task_id, from_project, config)
-    return moved
+    _remove_from_source(source_tasks, task_id, from_project, config)
+    return _rehome_in_target(task, to_project, config)
 
 
-def _rehome_task(task: Task, to_project: str, config: Config | None) -> Task:
+def _remove_from_source(
+    tasks: list[Task], task_id: int, project: str, config: Config | None
+) -> None:
+    remaining = [t for t in tasks if t.id != task_id]
+    save_tasks(project, remaining, config)
+
+
+def _rehome_in_target(task: Task, to_project: str, config: Config | None) -> Task:
     target_tasks = load_tasks(to_project, config)
     task.id = next_task_id(target_tasks)
     task.priority = next_priority(target_tasks)
@@ -308,11 +318,6 @@ def _rehome_task(task: Task, to_project: str, config: Config | None) -> Task:
     target_tasks.append(task)
     save_tasks(to_project, target_tasks, config)
     return task
-
-
-def _remove_and_save(tasks: list[Task], task_id: int, project: str, config: Config | None) -> None:
-    remaining = [t for t in tasks if t.id != task_id]
-    save_tasks(project, remaining, config)
 
 
 # ---------- internals ----------
