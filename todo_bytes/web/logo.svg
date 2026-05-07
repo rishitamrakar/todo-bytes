@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="todo-bytes">
+  <!-- Bracketed checkmark: [ ✓ ]
+       Brackets in currentColor so the logo adapts to light + dark themes.
+       The check uses the accent variable when used inline; falls back to
+       currentColor when rendered as an <img> or favicon. -->
+  <path d="M 20 12 L 10 12 L 10 52 L 20 52" />
+  <path d="M 44 12 L 54 12 L 54 52 L 44 52" />
+  <path d="M 22 33 L 29 41 L 44 24" stroke="var(--accent, currentColor)" />
+</svg>

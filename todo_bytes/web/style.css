@@ -45,10 +45,24 @@ body {
   gap: 12px;
 }
 
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
 .sidebar-header h1 {
   font-size: 18px;
-  margin: 0 0 8px 0;
+  margin: 0;
   font-weight: 600;
+}
+
+.app-logo {
+  width: 22px;
+  height: 22px;
+  color: var(--text);  /* drives the brackets via currentColor */
+  flex-shrink: 0;
 }
 
 .lists {

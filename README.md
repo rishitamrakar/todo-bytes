@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="todo_bytes/web/logo.svg" alt="todo-bytes logo" width="96" />
+</p>
+
 # todo-bytes
 
 Minimal todo app — tasks live in a YAML file, manage via CLI or a tiny browser UI.
