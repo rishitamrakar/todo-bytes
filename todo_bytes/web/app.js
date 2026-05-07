@@ -765,7 +765,39 @@ function renderStats() {
 }
 
 
+// ---------- theme ----------
+//
+// CSS variables drive everything; we just toggle data-theme on <html>.
+// Saved choice in localStorage wins; otherwise follow prefers-color-scheme.
+
+const THEME_KEY = 'todo-bytes:theme';
+const SUN = '☀';
+const MOON = '☾';
+
+function resolveInitialTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  if (saved === 'light' || saved === 'dark') return saved;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = theme === 'dark' ? SUN : MOON;
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
+  const next = current === 'dark' ? 'light' : 'dark';
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
+}
+
+
 // ---------- boot ----------
+
+// Apply the theme as early as possible to avoid a light-flash on dark loads.
+applyTheme(resolveInitialTheme());
 
 document.addEventListener('DOMContentLoaded', async () => {
   document.querySelectorAll('.view-tab').forEach(tab => {
@@ -790,6 +822,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('status-filter').addEventListener('dblclick', handleFilterDblClick);
   document.getElementById('tag-filter').addEventListener('click', handleFilterAction);
   document.getElementById('tag-filter').addEventListener('dblclick', handleFilterDblClick);
+
+  // Theme toggle (also re-syncs the icon since the button didn't exist when applyTheme ran early)
+  applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
+  document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
 
   // 'All Projects' button at the top of the sidebar
   document.getElementById('all-projects-btn').addEventListener('click', switchToAllProjects);

@@ -1,4 +1,6 @@
-/* todo-bytes UI — minimal, light, clean. */
+/* todo-bytes UI — themed via CSS variables. Light is the default; dark
+   activates when html has data-theme="dark". The boot script in app.js
+   sets that attribute from localStorage or prefers-color-scheme. */
 
 :root {
   --bg: #fafafa;
@@ -16,6 +18,46 @@
   --tag-fg: #3730a3;
   --project-bg: #fce7f3;
   --project-fg: #9d174d;
+}
+
+[data-theme="dark"] {
+  --bg: #0e0e10;
+  --card: #1a1a1d;
+  --border: #2a2a2e;
+  --text: #ededed;
+  --text-dim: #9a9a9e;
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --danger: #ef4444;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --row-hover: #232327;
+  --tag-bg: #1e1b4b;
+  --tag-fg: #a5b4fc;
+  --project-bg: #4a044e;
+  --project-fg: #f9a8d4;
+}
+
+.theme-toggle {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 14px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.theme-toggle:hover {
+  color: var(--text);
+  background: var(--row-hover);
 }
 
 * { box-sizing: border-box; }
