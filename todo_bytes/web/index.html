@@ -84,15 +84,49 @@
       </header>
 
       <nav class="views" id="views">
-        <button class="view-tab" data-view="open">Open</button>
-        <button class="view-tab" data-view="today">Today</button>
-        <button class="view-tab" data-view="overdue">Overdue</button>
-        <button class="view-tab" data-view="tomorrow">Tomorrow</button>
-        <button class="view-tab" data-view="week">This week</button>
-        <button class="view-tab" data-view="next-week">Next week</button>
-        <button class="view-tab" data-view="no-due">No due</button>
-        <button class="view-tab" data-view="done">Done (7d)</button>
-        <button class="view-tab" data-view="all">All</button>
+        <div class="date-chips">
+          <button class="view-tab" data-due="today">Today</button>
+          <button class="view-tab" data-due="tomorrow">Tomorrow</button>
+          <button class="view-tab" data-due="week">This week</button>
+          <button class="view-tab" data-due="next-week">Next week</button>
+          <button class="view-tab" data-due="overdue">Overdue</button>
+          <button class="view-tab" data-due="no-due">No due</button>
+          <button class="view-tab" data-due="custom" id="custom-range-chip">
+            <span id="custom-range-label">Custom…</span> <span class="caret">▾</span>
+          </button>
+        </div>
+
+        <span class="views-spacer"></span>
+
+        <button class="filter-chip" id="task-status-btn" title="Filter tasks by status">
+          Status <span class="caret">▾</span>
+        </button>
+
+        <div class="filter-panel" id="task-status-filter" hidden>
+          <div class="filter-panel-header">Show tasks with status:</div>
+          <label><input type="checkbox" data-task-status="todo"> To Do</label>
+          <label><input type="checkbox" data-task-status="in-progress"> In Progress</label>
+          <label><input type="checkbox" data-task-status="done"> Done</label>
+          <label><input type="checkbox" data-task-status="hold"> Hold</label>
+          <label><input type="checkbox" data-task-status="cancelled"> Cancelled</label>
+          <div class="filter-actions">
+            <button type="button" class="btn-secondary btn-mini" data-action="select-all" data-target="task-status">Select all</button>
+            <span style="flex:1"></span>
+            <button type="button" class="btn-primary btn-mini" data-action="apply" data-target="task-status">Apply</button>
+          </div>
+        </div>
+
+        <div class="filter-panel" id="custom-range-popover" hidden>
+          <div class="filter-panel-header">Due date range</div>
+          <div class="date-time-inputs">
+            <input type="date" id="custom-range-from" />
+            <input type="date" id="custom-range-to" />
+          </div>
+          <div class="filter-actions">
+            <span style="flex:1"></span>
+            <button type="button" class="btn-primary btn-mini" id="custom-range-apply">Apply</button>
+          </div>
+        </div>
       </nav>
 
       <div class="main-body">

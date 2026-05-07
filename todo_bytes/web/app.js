@@ -13,7 +13,13 @@ const state = {
   lists: [],
   defaultList: null,
   activeList: null,
-  activeView: 'open',
+  // Top bar filters (orthogonal):
+  //   activeDue: null | 'today' | 'tomorrow' | 'week' | 'next-week' | 'overdue' | 'no-due' | 'custom'
+  //   activeTaskStatuses: Set of statuses to show. Default = all 5 (no filter).
+  //   customRange: { from, to } when activeDue === 'custom'.
+  activeDue: null,
+  activeTaskStatuses: new Set(['todo', 'in-progress', 'done', 'hold', 'cancelled']),
+  customRange: { from: null, to: null },
   tasks: [],
   editingTaskId: null,  // null = creating new task
   editingTaskProject: null,  // project the task being edited belongs to (needed in All Projects view)
@@ -28,6 +34,7 @@ const state = {
     statuses: null,
     tags: null,
     showUntagged: null,
+    taskStatuses: null,
   },
 };
 
@@ -41,8 +48,16 @@ const api = {
   async getLists() {
     return fetchJson('/api/lists');
   },
-  async getTasks(listName, view) {
-    const params = new URLSearchParams({ list: listName, view });
+  async getTasks(listName, filters = {}) {
+    const params = new URLSearchParams({ list: listName });
+    if (filters.due) params.set('due', filters.due);
+    if (filters.due_from) params.set('due_from', filters.due_from);
+    if (filters.due_to) params.set('due_to', filters.due_to);
+    // Only send statuses when it's a real subset — omit means "pass through"
+    if (filters.statuses && filters.statuses.length > 0
+        && filters.statuses.length < ALL_STATUS_VALUES.length) {
+      filters.statuses.forEach(s => params.append('statuses', s));
+    }
     return fetchJson(`/api/tasks?${params}`);
   },
   async createTask(payload) {
@@ -202,17 +217,51 @@ function buildListItem(project) {
 }
 
 
-// ---------- render: views tabs ----------
+// ---------- render: top-bar chips ----------
 
 function renderViewTabs() {
-  document.querySelectorAll('.view-tab').forEach(tab => {
-    tab.classList.toggle('active', tab.dataset.view === state.activeView);
+  renderDateChips();
+  renderTaskStatusChip();
+  renderQuickAddVisibility();
+}
+
+function renderDateChips() {
+  document.querySelectorAll('.view-tab').forEach(chip => {
+    chip.classList.toggle('active', chip.dataset.due === state.activeDue);
   });
-  // Hint text + quick-add only on Open view of a single project (not All).
-  const isOpenView = state.activeView === 'open';
+  document.getElementById('custom-range-label').textContent =
+    state.activeDue === 'custom' && state.customRange.from && state.customRange.to
+      ? formatCustomRangeLabel(state.customRange.from, state.customRange.to)
+      : 'Custom…';
+}
+
+function renderTaskStatusChip() {
+  const btn = document.getElementById('task-status-btn');
+  const total = ALL_STATUS_VALUES.length;
+  const picked = state.activeTaskStatuses.size;
+  const isFiltered = picked > 0 && picked < total;
+  btn.classList.toggle('active', isFiltered);
+  btn.firstChild.textContent = isFiltered ? `Status (${picked}/${total}) ` : 'Status ';
+}
+
+function renderQuickAddVisibility() {
+  // Quick-add + drag-reorder only when no date filter is active and we're on a single project.
+  const noDateFilter = state.activeDue === null;
   const isSingleProject = state.activeList !== ALL_PROJECTS;
-  document.getElementById('reorder-hint').hidden = !(isOpenView && isSingleProject);
-  document.getElementById('quick-add').hidden = !(isOpenView && isSingleProject);
+  const allowEditing = noDateFilter && isSingleProject;
+  document.getElementById('reorder-hint').hidden = !allowEditing;
+  document.getElementById('quick-add').hidden = !allowEditing;
+}
+
+function formatCustomRangeLabel(fromIso, toIso) {
+  // Compact: '5 May – 12 May' (or '5 May 2027 – ...' if year differs from current)
+  const from = new Date(fromIso);
+  const to = new Date(toIso);
+  const opts = { day: 'numeric', month: 'short' };
+  const sameYear = from.getFullYear() === to.getFullYear();
+  const showYear = !sameYear || from.getFullYear() !== new Date().getFullYear();
+  const fmt = (d) => d.toLocaleDateString(undefined, showYear ? { ...opts, year: 'numeric' } : opts);
+  return `${fmt(from)} – ${fmt(to)}`;
 }
 
 
@@ -228,8 +277,8 @@ function renderTasks() {
   }
   empty.hidden = true;
   state.tasks.forEach(task => ul.appendChild(buildTaskRow(task)));
-  // Drag-reorder only makes sense within a single project on the open view.
-  if (state.activeView === 'open' && state.activeList !== ALL_PROJECTS) {
+  // Drag-reorder only makes sense within a single project with no date filter.
+  if (state.activeDue === null && state.activeList !== ALL_PROJECTS) {
     enableDragReorder(ul);
   }
 }
@@ -335,17 +384,30 @@ async function refreshTasks() {
   if (state.activeList === ALL_PROJECTS) {
     state.tasks = await fetchAllVisibleTasks();
   } else {
-    const data = await api.getTasks(state.activeList, state.activeView);
+    const data = await api.getTasks(state.activeList, currentTaskFilters());
     state.tasks = data.tasks;
   }
   renderTasks();
 }
 
+function currentTaskFilters() {
+  const filters = { statuses: Array.from(state.activeTaskStatuses) };
+  if (state.activeDue) {
+    filters.due = state.activeDue;
+    if (state.activeDue === 'custom') {
+      filters.due_from = state.customRange.from;
+      filters.due_to = state.customRange.to;
+    }
+  }
+  return filters;
+}
+
 async function fetchAllVisibleTasks() {
   const projects = visibleProjects();
   if (projects.length === 0) return [];
+  const filters = currentTaskFilters();
   const results = await Promise.all(
-    projects.map(p => api.getTasks(p.name, state.activeView).catch(() => ({ tasks: [] })))
+    projects.map(p => api.getTasks(p.name, filters).catch(() => ({ tasks: [] })))
   );
   // Combine, then sort by due date then priority (most useful in cross-project view).
   return results
@@ -376,10 +438,104 @@ function switchToAllProjects() {
   refreshTasks();
 }
 
-function switchView(view) {
-  state.activeView = view;
+function setDueFilter(due) {
+  // Toggle behaviour: clicking the active chip deactivates it (back to no date filter).
+  state.activeDue = state.activeDue === due ? null : due;
+  if (state.activeDue !== 'custom') {
+    state.customRange = { from: null, to: null };
+  }
   renderViewTabs();
   refreshTasks();
+}
+
+function applyTaskStatusFilter() {
+  if (state.pending.taskStatuses === null) return;
+  state.activeTaskStatuses = state.pending.taskStatuses;
+  state.pending.taskStatuses = null;
+  document.getElementById('task-status-filter').hidden = true;
+  renderViewTabs();
+  refreshTasks();
+}
+
+function openTaskStatusPanel() {
+  closeAllTopBarPanels();
+  state.pending.taskStatuses = new Set(state.activeTaskStatuses);
+  syncTaskStatusCheckboxes();
+  document.getElementById('task-status-filter').hidden = false;
+}
+
+function toggleTaskStatusPanel() {
+  const panel = document.getElementById('task-status-filter');
+  if (panel.hidden) openTaskStatusPanel();
+  else closeAllTopBarPanels();
+}
+
+function syncTaskStatusCheckboxes() {
+  document.querySelectorAll('#task-status-filter input[type=checkbox]').forEach(cb => {
+    cb.checked = state.pending.taskStatuses.has(cb.dataset.taskStatus);
+  });
+}
+
+function handleTaskStatusCheckboxChange(event) {
+  const cb = event.target;
+  if (cb.tagName !== 'INPUT' || state.pending.taskStatuses === null) return;
+  const status = cb.dataset.taskStatus;
+  if (cb.checked) state.pending.taskStatuses.add(status);
+  else state.pending.taskStatuses.delete(status);
+}
+
+function handleTaskStatusAction(event) {
+  const btn = event.target.closest('button[data-action]');
+  if (!btn) return;
+  if (btn.dataset.target !== 'task-status') return;
+  if (btn.dataset.action === 'apply') applyTaskStatusFilter();
+  else if (btn.dataset.action === 'select-all') {
+    state.pending.taskStatuses = new Set(ALL_STATUS_VALUES);
+    syncTaskStatusCheckboxes();
+  }
+}
+
+function handleTaskStatusDblClick(event) {
+  const btn = event.target.closest('button[data-action="select-all"]');
+  if (!btn || btn.dataset.target !== 'task-status') return;
+  state.pending.taskStatuses = new Set();
+  syncTaskStatusCheckboxes();
+}
+
+// ---------- top-bar custom date range popover ----------
+
+function openCustomRangePopover() {
+  closeAllTopBarPanels();
+  const popover = document.getElementById('custom-range-popover');
+  document.getElementById('custom-range-from').value = state.customRange.from || '';
+  document.getElementById('custom-range-to').value = state.customRange.to || '';
+  popover.hidden = false;
+}
+
+function toggleCustomRangePopover() {
+  const popover = document.getElementById('custom-range-popover');
+  if (popover.hidden) openCustomRangePopover();
+  else closeAllTopBarPanels();
+}
+
+function applyCustomRange() {
+  const from = document.getElementById('custom-range-from').value;
+  const to = document.getElementById('custom-range-to').value;
+  if (!from || !to) {
+    alert('Pick both a start and end date.');
+    return;
+  }
+  state.customRange = { from, to };
+  state.activeDue = 'custom';
+  document.getElementById('custom-range-popover').hidden = true;
+  renderViewTabs();
+  refreshTasks();
+}
+
+function closeAllTopBarPanels() {
+  document.getElementById('task-status-filter').hidden = true;
+  document.getElementById('custom-range-popover').hidden = true;
+  state.pending.taskStatuses = null;
 }
 
 function updateListTitle() {
@@ -800,9 +956,24 @@ function toggleTheme() {
 applyTheme(resolveInitialTheme());
 
 document.addEventListener('DOMContentLoaded', async () => {
-  document.querySelectorAll('.view-tab').forEach(tab => {
-    tab.addEventListener('click', () => switchView(tab.dataset.view));
+  // Top-bar date chips. Custom is special: opens a popover instead of
+  // immediately applying.
+  document.querySelectorAll('.view-tab').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const due = chip.dataset.due;
+      if (due === 'custom') toggleCustomRangePopover();
+      else setDueFilter(due);
+    });
   });
+
+  // Top-bar task status multiselect
+  document.getElementById('task-status-btn').addEventListener('click', toggleTaskStatusPanel);
+  document.getElementById('task-status-filter').addEventListener('change', handleTaskStatusCheckboxChange);
+  document.getElementById('task-status-filter').addEventListener('click', handleTaskStatusAction);
+  document.getElementById('task-status-filter').addEventListener('dblclick', handleTaskStatusDblClick);
+
+  // Custom date range popover
+  document.getElementById('custom-range-apply').addEventListener('click', applyCustomRange);
 
   // Task modal
   document.getElementById('modal-cancel').addEventListener('click', () => hideModal('task-modal'));

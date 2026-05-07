@@ -223,14 +223,48 @@ body {
   font-weight: 600;
 }
 
-/* View tabs */
+/* Top bar: date chips on the left, task-status filter chip on the right.
+   The two filter panels (status multiselect + custom date range popover)
+   anchor below the nav and span the full width. */
 .views {
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
+  align-items: center;
   margin-bottom: 12px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 8px;
+  position: relative;
+}
+
+.date-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.views-spacer { flex: 1; }
+
+.views .filter-chip {
+  flex: 0 0 auto;
+  font-size: 13px;
+  padding: 6px 10px;
+}
+
+.views .filter-panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 10;
+  min-width: 220px;
+  margin-top: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+#custom-range-popover {
+  left: auto;
+  right: 0;
+  min-width: 260px;
 }
 
 .view-tab {
