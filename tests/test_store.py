@@ -200,6 +200,18 @@ def test_mark_done_missing_task_raises(setup_project):
         store.mark_done("work", 99, setup_project)
 
 
+def test_add_task_with_status_arg(setup_project):
+    from todo_bytes.models import STATUS_IN_PROGRESS
+    task = store.add_task("work", "in flight", status=STATUS_IN_PROGRESS, config=setup_project)
+    assert task.status == STATUS_IN_PROGRESS
+
+
+def test_add_task_defaults_status_to_todo(setup_project):
+    from todo_bytes.models import STATUS_TODO
+    task = store.add_task("work", "new", config=setup_project)
+    assert task.status == STATUS_TODO
+
+
 # ---------- move task ----------
 
 def test_move_task_to_other_project(setup_project):

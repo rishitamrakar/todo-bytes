@@ -601,35 +601,6 @@ async function deleteTask(task) {
 }
 
 
-// ---------- inline quick-add ----------
-
-async function handleQuickAddSubmit(event) {
-  event.preventDefault();
-  const nameInput = document.getElementById('quick-add-input');
-  const dateInput = document.getElementById('quick-add-date');
-  const timeInput = document.getElementById('quick-add-time');
-  const name = nameInput.value.trim();
-  if (!name) return;
-  if (!state.activeProject) {
-    alert('Pick a project first.');
-    return;
-  }
-  const due = combineDateTimeToIso(dateInput.value, timeInput.value);
-  try {
-    await api.createTask({ project: state.activeProject, name, due });
-  } catch (err) {
-    alert('Add failed: ' + err.message);
-    return;
-  }
-  nameInput.value = '';
-  dateInput.value = '';
-  timeInput.value = '';
-  await refreshProjects();
-  await refreshTasks();
-  nameInput.focus();  // ready for the next task
-}
-
-
 // ---------- new project (inline in sidebar) ----------
 
 async function handleNewProjectSubmit(event) {
@@ -844,8 +815,38 @@ function openEditModal(task) {
   fillTaskForm(task);
   showModal('task-modal');
   state.taskFormSnapshot = snapshotTaskForm();
-  // Attach outside-click listener on next tick so the opening click
-  // doesn't immediately trigger close.
+  attachOutsideClickListenerOnNextTick();
+}
+
+function openCreateModal() {
+  // Default to active project; in All Projects view fall back to the default project.
+  const targetProject = state.activeProject === ALL_PROJECTS
+    ? state.defaultProject
+    : state.activeProject;
+  if (!targetProject) {
+    alert('Pick a project first.');
+    return;
+  }
+  state.editingTaskId = null;
+  state.editingTaskProject = targetProject;
+  document.getElementById('modal-title').textContent = 'New task';
+  fillTaskForm({
+    name: '',
+    due: null,
+    tags: [],
+    status: 'todo',
+    description: '',
+    notes: '',
+    project: targetProject,
+    created: null,
+  });
+  showModal('task-modal');
+  state.taskFormSnapshot = snapshotTaskForm();
+  attachOutsideClickListenerOnNextTick();
+  document.getElementById('task-form').elements.name.focus();
+}
+
+function attachOutsideClickListenerOnNextTick() {
   setTimeout(() => {
     document.addEventListener('mousedown', handleOutsideClickToClose);
   }, 0);
@@ -922,13 +923,19 @@ function populateProjectDropdown(select, currentProject) {
 
 async function submitTaskForm(event) {
   event.preventDefault();
-  if (state.editingTaskId === null) return;  // edit-only modal
   const form = event.target;
   const targetProject = form.elements.project.value;
-  const sourceProject = state.editingTaskProject;
   const payload = readTaskForm(form);
+  if (!payload.name) {
+    alert('Task name is required.');
+    return;
+  }
   try {
-    await saveTaskEdits(sourceProject, state.editingTaskId, targetProject, payload);
+    if (state.editingTaskId === null) {
+      await api.createTask({ project: targetProject, ...payload });
+    } else {
+      await saveTaskEdits(state.editingTaskProject, state.editingTaskId, targetProject, payload);
+    }
   } catch (err) {
     alert('Save failed: ' + err.message);
     return;
@@ -1102,8 +1109,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 
 
-  // Inline task quick-add
-  document.getElementById('quick-add').addEventListener('submit', handleQuickAddSubmit);
+  // Quick-add trigger — clicking the row opens the full new-task panel.
+  document.getElementById('quick-add-trigger').addEventListener('click', openCreateModal);
 
   // Inline new-project form (sidebar)
   document.getElementById('new-project-form').addEventListener('submit', handleNewProjectSubmit);

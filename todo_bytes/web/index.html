@@ -134,30 +134,12 @@
             Drag rows to reorder priority. Top of list = highest priority.
           </div>
 
-          <ul class="tasks" id="tasks"></ul>
+          <button type="button" class="quick-add" id="quick-add-trigger">
+            <span class="quick-add-plus">+</span>
+            <span class="quick-add-label">Add task</span>
+          </button>
 
-          <form class="quick-add" id="quick-add" autocomplete="off">
-            <span class="quick-add-icon">+</span>
-            <input
-              type="text"
-              id="quick-add-input"
-              class="quick-add-name"
-              placeholder="Type to add a task, then press Enter…"
-              autocomplete="off"
-            />
-            <input
-              type="date"
-              id="quick-add-date"
-              class="quick-add-date"
-              title="Due date (optional)"
-            />
-            <input
-              type="time"
-              id="quick-add-time"
-              class="quick-add-time"
-              title="Due time (optional, defaults to end of day)"
-            />
-          </form>
+          <ul class="tasks" id="tasks"></ul>
 
           <div class="empty-state" id="empty-state" hidden>
             <p>Nothing here yet.</p>

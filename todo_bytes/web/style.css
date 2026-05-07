@@ -524,22 +524,30 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   padding: 10px 12px;
-  margin-top: 4px;
+  margin-bottom: 8px;
   background: transparent;
   border: 1px dashed var(--border);
   border-radius: 6px;
-  transition: border-color 0.1s, background 0.1s;
+  color: var(--text-dim);
+  font-size: 14px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.1s, background 0.1s, color 0.1s;
 }
 
-.quick-add:focus-within {
+.quick-add:hover,
+.quick-add:focus {
   border-color: var(--accent);
   border-style: solid;
   background: var(--card);
+  color: var(--text);
+  outline: none;
 }
 
-.quick-add-icon {
-  color: var(--text-dim);
+.quick-add-plus {
   font-size: 16px;
   font-weight: 500;
   user-select: none;
@@ -547,39 +555,8 @@ body {
   text-align: center;
 }
 
-.quick-add input {
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: 14px;
-  font-family: inherit;
-  color: var(--text);
-  padding: 0;
-}
-
-.quick-add-name {
+.quick-add-label {
   flex: 1;
-}
-
-.quick-add-date,
-.quick-add-time {
-  flex: 0 0 auto;
-  color: var(--text-dim);
-  font-size: 13px;
-  padding: 2px 4px !important;
-  border-radius: 4px;
-}
-
-.quick-add-date:hover,
-.quick-add-time:hover,
-.quick-add-date:focus,
-.quick-add-time:focus {
-  color: var(--text);
-  background: var(--row-hover);
-}
-
-.quick-add input::placeholder {
-  color: var(--text-dim);
 }
 
 .quick-add[hidden] {

@@ -34,6 +34,7 @@ class CreateTaskRequest(BaseModel):
     tags: list[str] = []
     description: Optional[str] = None
     notes: Optional[str] = None
+    status: Optional[str] = None
 
 
 class UpdateTaskRequest(BaseModel):
@@ -178,6 +179,7 @@ def _register_task_routes(app: FastAPI) -> None:
                 tags=payload.tags,
                 description=payload.description,
                 notes=payload.notes,
+                status=payload.status,
                 config=config,
             )
         except store.ProjectNotFoundError as err:

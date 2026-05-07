@@ -211,6 +211,7 @@ def add_task(
     tags: Optional[list[str]] = None,
     description: Optional[str] = None,
     notes: Optional[str] = None,
+    status: Optional[str] = None,
     config: Config | None = None,
 ) -> Task:
     """Append a new task to a project. Returns the created Task.
@@ -225,7 +226,7 @@ def add_task(
         id=next_task_id(tasks),
         name=name,
         priority=next_priority(tasks),
-        status=STATUS_TODO,
+        status=status or STATUS_TODO,
         due=due,
         tags=tags or [],
         project=project_name,  # auto-set
