@@ -217,28 +217,79 @@ def test_create_task_in_missing_list(client: TestClient):
 
 # ---------- GET /api/tasks ----------
 
-def test_get_tasks_open_view_default(client: TestClient):
+def test_get_tasks_no_filters_returns_everything(client: TestClient):
+    """With no due / statuses params, all tasks pass through (orthogonal default)."""
     client.post("/api/tasks", json={"list": "work", "name": "a"})
     client.post("/api/tasks", json={"list": "work", "name": "b"})
     response = client.get("/api/tasks", params={"list": "work"})
     assert response.status_code == 200
     data = response.json()
-    assert data["view"] == "open"
     assert len(data["tasks"]) == 2
 
 
-def test_get_tasks_today_filter(client: TestClient):
+def test_get_tasks_due_today_filter(client: TestClient):
     today = date.today().isoformat()
     tomorrow = (date.today() + timedelta(days=1)).isoformat()
     client.post("/api/tasks", json={"list": "work", "name": "do today", "due": today})
     client.post("/api/tasks", json={"list": "work", "name": "do tomorrow", "due": tomorrow})
-    response = client.get("/api/tasks", params={"list": "work", "view": "today"})
+    response = client.get("/api/tasks", params={"list": "work", "due": "today"})
     names = [t["name"] for t in response.json()["tasks"]]
     assert names == ["do today"]
 
 
-def test_get_tasks_invalid_view(client: TestClient):
-    response = client.get("/api/tasks", params={"list": "work", "view": "bogus"})
+def test_get_tasks_due_today_includes_done_tasks(client: TestClient):
+    """Date filter is orthogonal to status — done tasks due today still match.
+    Caller filters by status separately when they want to hide them."""
+    today = date.today().isoformat()
+    client.post("/api/tasks", json={"list": "work", "name": "open today", "due": today})
+    client.post("/api/tasks", json={"list": "work", "name": "done today", "due": today})
+    client.post("/api/tasks/work/2/done")
+    response = client.get("/api/tasks", params={"list": "work", "due": "today"})
+    names = sorted(t["name"] for t in response.json()["tasks"])
+    assert names == ["done today", "open today"]
+
+
+def test_get_tasks_filter_by_statuses(client: TestClient):
+    client.post("/api/tasks", json={"list": "work", "name": "todo task"})
+    client.post("/api/tasks", json={"list": "work", "name": "done task"})
+    client.post("/api/tasks/work/2/done")
+    response = client.get("/api/tasks", params=[("list", "work"), ("statuses", "done")])
+    names = [t["name"] for t in response.json()["tasks"]]
+    assert names == ["done task"]
+
+
+def test_get_tasks_filter_by_multiple_statuses(client: TestClient):
+    client.post("/api/tasks", json={"list": "work", "name": "todo task"})
+    client.post("/api/tasks", json={"list": "work", "name": "hold task"})
+    client.patch("/api/tasks/work/2", json={"status": "hold"})
+    response = client.get(
+        "/api/tasks",
+        params=[("list", "work"), ("statuses", "todo"), ("statuses", "hold")],
+    )
+    names = sorted(t["name"] for t in response.json()["tasks"])
+    assert names == ["hold task", "todo task"]
+
+
+def test_get_tasks_custom_date_range_inclusive(client: TestClient):
+    client.post("/api/tasks", json={"list": "work", "name": "day-1", "due": "2026-05-04"})
+    client.post("/api/tasks", json={"list": "work", "name": "day-2", "due": "2026-05-06"})
+    client.post("/api/tasks", json={"list": "work", "name": "day-3", "due": "2026-05-08"})
+    response = client.get(
+        "/api/tasks",
+        params={"list": "work", "due": "custom", "due_from": "2026-05-04", "due_to": "2026-05-06"},
+    )
+    names = sorted(t["name"] for t in response.json()["tasks"])
+    assert names == ["day-1", "day-2"]
+
+
+def test_get_tasks_custom_range_requires_both_bounds(client: TestClient):
+    response = client.get("/api/tasks", params={"list": "work", "due": "custom", "due_from": "2026-05-04"})
+    assert response.status_code == 400
+    assert "due_to" in response.json()["detail"]
+
+
+def test_get_tasks_invalid_due_filter(client: TestClient):
+    response = client.get("/api/tasks", params={"list": "work", "due": "bogus"})
     assert response.status_code == 400
 
 
