@@ -11,6 +11,10 @@ Projects:
   todo projects delete <name>       — delete a project
   todo use <name>                   — set the default project
 
+Agent skill:
+  todo skill install [--dir <path>] — copy the agent skill folder out
+                                       (default: ~/.agents/skills/)
+
 Tasks (operate on the default project):
   todo add "task name" [--due ...] [--tag ...] [--project ...]
   todo list
@@ -77,6 +81,8 @@ config_app = typer.Typer(help="Show or update todo-bytes config.", no_args_is_he
 app.add_typer(config_app, name="config")
 projects_app = typer.Typer(help="Manage projects.", no_args_is_help=True)
 app.add_typer(projects_app, name="projects")
+skill_app = typer.Typer(help="Install the agent skill that ships with todo-bytes.", no_args_is_help=True)
+app.add_typer(skill_app, name="skill")
 
 console = Console()
 
@@ -275,6 +281,59 @@ def ui_cmd(
     console.print(f"[green]Starting UI on[/green] http://127.0.0.1:{target_port}")
     console.print("[dim]Press Ctrl+C to stop.[/dim]")
     run_server(port=target_port, open_browser=not no_browser)
+
+
+# ---------- skill install ----------
+
+DEFAULT_SKILLS_DIR = Path.home() / ".agents" / "skills"
+SKILL_FOLDER_NAME = "todo-bytes"
+
+
+@skill_app.command("install")
+def skill_install_cmd(
+    dir: Optional[str] = typer.Option(
+        None,
+        "--dir",
+        "-d",
+        help="Parent dir to copy the skill folder into. Defaults to ~/.agents/skills/",
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Overwrite existing skill folder without asking."),
+):
+    """Copy the agent skill folder shipped with todo-bytes into a directory.
+
+    The skill ships inside the package so pipx-installed users have it.
+    This command copies it out to wherever your agent (Pi, Claude Code, etc.)
+    looks for skills.
+    """
+    source = _locate_packaged_skill()
+    target_parent = Path(dir).expanduser().resolve() if dir else DEFAULT_SKILLS_DIR
+    target = target_parent / SKILL_FOLDER_NAME
+    _confirm_skill_overwrite_or_exit(target, skip=yes)
+    _copy_skill_folder(source, target)
+    console.print(f"[green]✓[/green] Skill installed at [bold]{target}[/bold]")
+
+
+def _locate_packaged_skill() -> Path:
+    source = Path(__file__).parent / "skills" / SKILL_FOLDER_NAME
+    if not source.is_dir():
+        _exit_with_error(f"Packaged skill folder not found at {source}")
+    return source
+
+
+def _confirm_skill_overwrite_or_exit(target: Path, skip: bool) -> None:
+    if not target.exists() or skip:
+        return
+    if not typer.confirm(f"Skill folder already exists at {target}. Overwrite?", default=False):
+        console.print("[yellow]Aborted.[/yellow]")
+        raise typer.Exit(code=1)
+
+
+def _copy_skill_folder(source: Path, target: Path) -> None:
+    import shutil
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(source, target)
 
 
 @app.command("use")

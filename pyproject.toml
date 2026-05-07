@@ -54,7 +54,13 @@ Repository = "https://github.com/rishibytes/todo-bytes"
 include = ["todo_bytes*"]
 
 [tool.setuptools.package-data]
-todo_bytes = ["web/*.html", "web/*.css", "web/*.js"]
+todo_bytes = [
+    "web/*.html",
+    "web/*.css",
+    "web/*.js",
+    "web/*.svg",
+    "skills/**/*.md",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

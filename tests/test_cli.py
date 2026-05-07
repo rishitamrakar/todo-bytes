@@ -608,3 +608,37 @@ def test_ui_missing_extras_message_includes_ui_marker(
     assert result.exit_code == 1
     assert "[ui]" in result.stdout
     assert "todo-bytes[ui]" in result.stdout
+
+
+# ---------- todo skill install ----------
+
+def test_skill_install_copies_folder(tmp_path: Path, runner: CliRunner):
+    target_parent = tmp_path / "agents" / "skills"
+    result = runner.invoke(app, ["skill", "install", "--dir", str(target_parent), "--yes"])
+    assert result.exit_code == 0
+    skill_md = target_parent / "todo-bytes" / "SKILL.md"
+    assert skill_md.is_file()
+    assert "name: todo-bytes" in skill_md.read_text()
+
+
+def test_skill_install_overwrites_with_yes(tmp_path: Path, runner: CliRunner):
+    target_parent = tmp_path
+    runner.invoke(app, ["skill", "install", "--dir", str(target_parent), "--yes"])
+    # Stub a stale file inside the existing folder
+    stale = target_parent / "todo-bytes" / "stale.txt"
+    stale.write_text("old")
+    result = runner.invoke(app, ["skill", "install", "--dir", str(target_parent), "--yes"])
+    assert result.exit_code == 0
+    assert not stale.exists()  # overwrite removed the stale file
+    assert (target_parent / "todo-bytes" / "SKILL.md").is_file()
+
+
+def test_skill_install_refuses_without_yes_when_target_exists(
+    tmp_path: Path, runner: CliRunner
+):
+    target_parent = tmp_path
+    runner.invoke(app, ["skill", "install", "--dir", str(target_parent), "--yes"])
+    # Second run without --yes, simulate user pressing Enter (= No)
+    result = runner.invoke(app, ["skill", "install", "--dir", str(target_parent)], input="\n")
+    assert result.exit_code == 1
+    assert "Aborted" in result.stdout
