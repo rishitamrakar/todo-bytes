@@ -1,0 +1,9 @@
+# Code owners for todo-bytes.
+#
+# Any PR touching files in this repo will automatically request a review
+# from the listed owners. Combined with branch protection that requires
+# code-owner review on `main`, this means no change can be merged without
+# the owner's explicit approval.
+
+# Default owner for everything in the repo
+*       @rishitamrakar
