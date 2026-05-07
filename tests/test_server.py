@@ -343,3 +343,35 @@ def test_reorder_partial_ids_only_affects_those(client: TestClient):
     assert tasks[2] == 1
     assert tasks[1] == 2
     assert tasks[3] == 3  # untouched
+
+
+# ---------- All Projects cross-project task actions (regression for 7.0) ----------
+#
+# In the All Projects view the UI must address each task by its own project,
+# not by the '__all__' sentinel. These tests pin that contract: actions on
+# tasks in a non-default project must succeed; the sentinel must never be
+# accepted as a real project name.
+
+def test_cross_project_task_actions_target_correct_project(client: TestClient):
+    client.post("/api/lists", json={"name": "personal"})
+    client.post("/api/tasks", json={"list": "work", "name": "work task"})
+    client.post("/api/tasks", json={"list": "personal", "name": "personal task"})
+    # Edit, mark done, reopen, delete — each addressed by the task's own project.
+    assert client.patch("/api/tasks/personal/1", json={"name": "renamed"}).status_code == 200
+    assert client.post("/api/tasks/personal/1/done").status_code == 200
+    assert client.post("/api/tasks/personal/1/reopen").status_code == 200
+    assert client.delete("/api/tasks/personal/1").status_code == 200
+    # The work task is untouched.
+    work_tasks = client.get("/api/tasks", params={"list": "work"}).json()["tasks"]
+    assert len(work_tasks) == 1
+    assert work_tasks[0]["name"] == "work task"
+
+
+def test_all_projects_sentinel_is_not_a_real_project(client: TestClient):
+    # The UI uses '__all__' as a sentinel for the cross-project view.
+    # The backend must reject it as a project name so a UI bug surfaces clearly.
+    client.post("/api/tasks", json={"list": "work", "name": "x"})
+    assert client.patch("/api/tasks/__all__/1", json={"name": "y"}).status_code == 404
+    assert client.delete("/api/tasks/__all__/1").status_code == 404
+    assert client.post("/api/tasks/__all__/1/done").status_code == 404
+    assert client.post("/api/tasks/__all__/1/reopen").status_code == 404

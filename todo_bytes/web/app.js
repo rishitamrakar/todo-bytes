@@ -16,6 +16,7 @@ const state = {
   activeView: 'open',
   tasks: [],
   editingTaskId: null,  // null = creating new task
+  editingTaskProject: null,  // project the task being edited belongs to (needed in All Projects view)
   // Sidebar filters — status + tags. Both must pass for a project to show.
   // Default: active statuses; all tags + untagged checked.
   visibleStatuses: new Set(['todo', 'in-progress']),
@@ -388,12 +389,19 @@ function updateListTitle() {
   document.getElementById('list-title').textContent = title;
 }
 
+// In All Projects view state.activeList is the sentinel '__all__'. Task-level
+// operations must target the task's own project, not the sentinel.
+function projectForTask(task) {
+  return state.activeList === ALL_PROJECTS ? task.project : state.activeList;
+}
+
 async function toggleTaskDone(task) {
   // Click the circle: done ↔ todo. Other statuses (hold, cancelled) need the modal.
+  const project = projectForTask(task);
   if (task.status === 'done') {
-    await api.reopen(state.activeList, task.id);
+    await api.reopen(project, task.id);
   } else if (task.status === 'todo' || task.status === 'in-progress') {
-    await api.markDone(state.activeList, task.id);
+    await api.markDone(project, task.id);
   } else {
     return;  // hold, cancelled — use edit modal
   }
@@ -403,7 +411,7 @@ async function toggleTaskDone(task) {
 
 async function deleteTask(task) {
   if (!confirm(`Delete "${task.name}"?`)) return;
-  await api.deleteTask(state.activeList, task.id);
+  await api.deleteTask(projectForTask(task), task.id);
   await refreshLists();
   await refreshTasks();
 }
@@ -622,6 +630,7 @@ async function deleteActiveProject() {
 
 function openEditModal(task) {
   state.editingTaskId = task.id;
+  state.editingTaskProject = projectForTask(task);
   document.getElementById('modal-title').textContent = 'Edit task';
   fillTaskForm(task);
   showModal('task-modal');
@@ -646,7 +655,7 @@ async function submitTaskForm(event) {
   if (state.editingTaskId === null) return;  // edit-only modal
   const payload = readTaskForm(event.target);
   try {
-    await api.updateTask(state.activeList, state.editingTaskId, payload);
+    await api.updateTask(state.editingTaskProject, state.editingTaskId, payload);
   } catch (err) {
     alert('Save failed: ' + err.message);
     return;
