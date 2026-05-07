@@ -2,11 +2,16 @@
   <img src="todo_bytes/web/logo.svg" alt="todo-bytes logo" width="96" />
 </p>
 
+<p align="center">
+  <a href="https://github.com/rishitamrakar/todo-bytes/releases/latest"><img src="https://img.shields.io/github/v/release/rishitamrakar/todo-bytes?label=release&color=blue" alt="Latest release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT" /></a>
+</p>
+
 # todo-bytes
 
 A minimal todo app. Tasks live in plain YAML files on your disk. Drive everything from a small browser UI or a `todo` CLI.
 
-> **Status:** v1.1.0 — feature-complete for v1.
+> **Status:** v1.1.0 — feature-complete for v1. See [Releases](https://github.com/rishitamrakar/todo-bytes/releases) for version history.
 
 ## Why
 
