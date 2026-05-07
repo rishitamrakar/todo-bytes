@@ -60,18 +60,18 @@ todo init
 
 You'll be asked:
 1. **Where should your tasks live?** — a directory on your disk where the yaml files will be stored. Default is `~/my-todos`. You can put this in Dropbox/iCloud/a git repo for sync.
-2. **Default list name?** — name of your first list. Default is `work`.
+2. **Default project name?** — name of your first project. Default is `work`.
 
 After init, you'll have:
 ```
-~/.config/todo-bytes/config.yaml      ← global config (data dir, default list, UI port)
-<your-data-dir>/work.yaml             ← your first task list
+~/.config/todo-bytes/config.yaml      ← global config (data dir, default project, UI port)
+<your-data-dir>/work.yaml             ← your first project file
 ```
 
 ## Non-interactive setup
 
 ```bash
-todo init --data-dir ~/Dropbox/todos --default-list personal --yes
+todo init --data-dir ~/Dropbox/todos --default-project personal --yes
 ```
 
 ## Updating config later
@@ -79,7 +79,7 @@ todo init --data-dir ~/Dropbox/todos --default-list personal --yes
 ```bash
 todo config show                          # see current config
 todo config set data_dir ~/new/path       # change data dir
-todo config set default_list personal     # change default list
+todo config set default_project personal  # change default project
 todo config set ui_port 9000              # change UI port
 ```
 
@@ -105,7 +105,7 @@ A tiny yaml file with three settings:
 
 ```yaml
 data_dir: /Users/you/my-todos      # where your task yaml files are
-default_list: work                 # which list `todo` uses when --list is not passed
+default_project: work              # which project `todo` uses when --project is not passed
 ui_port: 8765                      # which port the web UI runs on
 ```
 
@@ -114,10 +114,10 @@ It's created the first time you run `todo init`. You can read it with `todo conf
 ### 3. Your tasks (the data)
 
 ```
-<data_dir>/<list-name>.yaml
+<data_dir>/<project-name>.yaml
 ```
 
-Where `<data_dir>` is whatever you picked at `todo init`. One yaml file per list:
+Where `<data_dir>` is whatever you picked at `todo init`. One yaml file per project:
 
 ```
 ~/my-todos/

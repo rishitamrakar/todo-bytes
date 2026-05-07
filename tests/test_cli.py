@@ -25,7 +25,7 @@ def ready_to_use(fake_home: Path, runner: CliRunner) -> Path:
     data_dir = fake_home / "tasks"
     runner.invoke(
         app,
-        ["init", "--data-dir", str(data_dir), "--default-list", "work", "--yes"],
+        ["init", "--data-dir", str(data_dir), "--default-project", "work", "--yes"],
     )
     return data_dir
 
@@ -36,11 +36,11 @@ def test_version_command(runner: CliRunner):
     assert __version__ in result.stdout
 
 
-def test_init_creates_data_dir_list_file_and_config(fake_home: Path, runner: CliRunner):
+def test_init_creates_data_dir_project_file_and_config(fake_home: Path, runner: CliRunner):
     data_dir = fake_home / "tasks"
     result = runner.invoke(
         app,
-        ["init", "--data-dir", str(data_dir), "--default-list", "work", "--yes"],
+        ["init", "--data-dir", str(data_dir), "--default-project", "work", "--yes"],
     )
     assert result.exit_code == 0, result.stdout
 
@@ -48,9 +48,9 @@ def test_init_creates_data_dir_list_file_and_config(fake_home: Path, runner: Cli
     assert data_dir.is_dir()
 
     # List file created with the right shape
-    list_file = data_dir / "work.yaml"
-    assert list_file.is_file()
-    parsed = yaml.safe_load(list_file.read_text())
+    project_file = data_dir / "work.yaml"
+    assert project_file.is_file()
+    parsed = yaml.safe_load(project_file.read_text())
     # New format: project metadata block + tasks list
     assert parsed["project"]["name"] == "work"
     assert parsed["project"]["status"] == "todo"
@@ -59,23 +59,23 @@ def test_init_creates_data_dir_list_file_and_config(fake_home: Path, runner: Cli
     # Config saved
     loaded = cfg.load_config()
     assert loaded.data_dir == str(data_dir)
-    assert loaded.default_list == "work"
+    assert loaded.default_project == "work"
     assert loaded.ui_port == 8765
 
 
-def test_init_with_custom_list_name(fake_home: Path, runner: CliRunner):
+def test_init_with_custom_project_name(fake_home: Path, runner: CliRunner):
     data_dir = fake_home / "tasks"
     result = runner.invoke(
         app,
-        ["init", "--data-dir", str(data_dir), "--default-list", "personal", "--yes"],
+        ["init", "--data-dir", str(data_dir), "--default-project", "personal", "--yes"],
     )
     assert result.exit_code == 0
     assert (data_dir / "personal.yaml").is_file()
-    assert cfg.load_config().default_list == "personal"
+    assert cfg.load_config().default_project == "personal"
 
 
-def test_init_does_not_clobber_existing_list_file(fake_home: Path, runner: CliRunner):
-    """Re-running init should not overwrite an existing list file's tasks."""
+def test_init_does_not_clobber_existing_project_file(fake_home: Path, runner: CliRunner):
+    """Re-running init should not overwrite an existing project file's tasks."""
     data_dir = fake_home / "tasks"
     data_dir.mkdir(parents=True)
     existing = data_dir / "work.yaml"
@@ -86,7 +86,7 @@ def test_init_does_not_clobber_existing_list_file(fake_home: Path, runner: CliRu
 
     result = runner.invoke(
         app,
-        ["init", "--data-dir", str(data_dir), "--default-list", "work", "--yes"],
+        ["init", "--data-dir", str(data_dir), "--default-project", "work", "--yes"],
     )
     assert result.exit_code == 0
 
@@ -97,12 +97,12 @@ def test_init_does_not_clobber_existing_list_file(fake_home: Path, runner: CliRu
 def test_init_refuses_overwrite_without_yes(fake_home: Path, runner: CliRunner):
     """If config already exists and --yes is not given, prompt should default to No."""
     data_dir = fake_home / "tasks"
-    runner.invoke(app, ["init", "--data-dir", str(data_dir), "--default-list", "work", "--yes"])
+    runner.invoke(app, ["init", "--data-dir", str(data_dir), "--default-project", "work", "--yes"])
 
     # Second run without --yes, simulating user pressing Enter (defaults to No)
     result = runner.invoke(
         app,
-        ["init", "--data-dir", str(data_dir), "--default-list", "work"],
+        ["init", "--data-dir", str(data_dir), "--default-project", "work"],
         input="\n",
     )
     assert result.exit_code == 1
@@ -118,29 +118,29 @@ def test_config_show_errors_when_no_config(fake_home: Path, runner: CliRunner):
 def test_config_show_prints_all_fields(fake_home: Path, runner: CliRunner):
     runner.invoke(
         app,
-        ["init", "--data-dir", str(fake_home / "tasks"), "--default-list", "work", "--yes"],
+        ["init", "--data-dir", str(fake_home / "tasks"), "--default-project", "work", "--yes"],
     )
     result = runner.invoke(app, ["config", "show"])
     assert result.exit_code == 0
     assert "data_dir" in result.stdout
-    assert "default_list" in result.stdout
+    assert "default_project" in result.stdout
     assert "ui_port" in result.stdout
 
 
 def test_config_set_updates_field(fake_home: Path, runner: CliRunner):
     runner.invoke(
         app,
-        ["init", "--data-dir", str(fake_home / "tasks"), "--default-list", "work", "--yes"],
+        ["init", "--data-dir", str(fake_home / "tasks"), "--default-project", "work", "--yes"],
     )
-    result = runner.invoke(app, ["config", "set", "default_list", "personal"])
+    result = runner.invoke(app, ["config", "set", "default_project", "personal"])
     assert result.exit_code == 0
-    assert cfg.load_config().default_list == "personal"
+    assert cfg.load_config().default_project == "personal"
 
 
 def test_config_set_rejects_unknown_key(fake_home: Path, runner: CliRunner):
     runner.invoke(
         app,
-        ["init", "--data-dir", str(fake_home / "tasks"), "--default-list", "work", "--yes"],
+        ["init", "--data-dir", str(fake_home / "tasks"), "--default-project", "work", "--yes"],
     )
     result = runner.invoke(app, ["config", "set", "bogus_key", "value"])
     assert result.exit_code == 1
@@ -150,7 +150,7 @@ def test_config_set_rejects_unknown_key(fake_home: Path, runner: CliRunner):
 def test_config_set_rejects_bad_port(fake_home: Path, runner: CliRunner):
     runner.invoke(
         app,
-        ["init", "--data-dir", str(fake_home / "tasks"), "--default-list", "work", "--yes"],
+        ["init", "--data-dir", str(fake_home / "tasks"), "--default-project", "work", "--yes"],
     )
     result = runner.invoke(app, ["config", "set", "ui_port", "not_a_number"])
     assert result.exit_code == 1
@@ -319,78 +319,78 @@ def test_task_commands_fail_without_init(fake_home: Path, runner: CliRunner):
     assert "todo init" in result.stdout
 
 
-# ---------- list management commands ----------
+# ---------- project management commands ----------
 
-def test_lists_show_when_only_default(ready_to_use, runner: CliRunner):
-    result = runner.invoke(app, ["lists", "show"])
+def test_projects_show_when_only_default(ready_to_use, runner: CliRunner):
+    result = runner.invoke(app, ["projects", "show"])
     assert result.exit_code == 0
     assert "work" in result.stdout
 
 
-def test_lists_create_then_show(ready_to_use, runner: CliRunner):
-    result = runner.invoke(app, ["lists", "create", "personal"])
+def test_projects_create_then_show(ready_to_use, runner: CliRunner):
+    result = runner.invoke(app, ["projects", "create", "personal"])
     assert result.exit_code == 0
     assert "personal" in result.stdout
-    listing = runner.invoke(app, ["lists", "show"])
+    listing = runner.invoke(app, ["projects", "show"])
     assert "personal" in listing.stdout
     assert "work" in listing.stdout
 
 
-def test_lists_create_rejects_duplicate(ready_to_use, runner: CliRunner):
-    result = runner.invoke(app, ["lists", "create", "work"])
+def test_projects_create_rejects_duplicate(ready_to_use, runner: CliRunner):
+    result = runner.invoke(app, ["projects", "create", "work"])
     assert result.exit_code == 1
     assert "already exists" in result.stdout
 
 
-def test_lists_delete_with_yes_flag(ready_to_use, runner: CliRunner):
-    runner.invoke(app, ["lists", "create", "personal"])
-    result = runner.invoke(app, ["lists", "delete", "personal", "--yes"])
+def test_projects_delete_with_yes_flag(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["projects", "create", "personal"])
+    result = runner.invoke(app, ["projects", "delete", "personal", "--yes"])
     assert result.exit_code == 0
     assert "Deleted" in result.stdout
 
 
-def test_lists_delete_refuses_default(ready_to_use, runner: CliRunner):
-    result = runner.invoke(app, ["lists", "delete", "work", "--yes"])
+def test_projects_delete_refuses_default(ready_to_use, runner: CliRunner):
+    result = runner.invoke(app, ["projects", "delete", "work", "--yes"])
     assert result.exit_code == 1
-    assert "default project" in result.stdout.lower() or "default list" in result.stdout.lower()
+    assert "default project" in result.stdout.lower()
 
 
-def test_lists_delete_confirms_when_no_yes(ready_to_use, runner: CliRunner):
-    runner.invoke(app, ["lists", "create", "personal"])
+def test_projects_delete_confirms_when_no_yes(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["projects", "create", "personal"])
     # Simulate user pressing Enter (defaults to No)
-    result = runner.invoke(app, ["lists", "delete", "personal"], input="\n")
+    result = runner.invoke(app, ["projects", "delete", "personal"], input="\n")
     assert result.exit_code == 1
     assert "Aborted" in result.stdout
 
 
-def test_lists_delete_missing(ready_to_use, runner: CliRunner):
-    result = runner.invoke(app, ["lists", "delete", "nonexistent", "--yes"])
+def test_projects_delete_missing(ready_to_use, runner: CliRunner):
+    result = runner.invoke(app, ["projects", "delete", "nonexistent", "--yes"])
     assert result.exit_code == 1
     assert "not found" in result.stdout.lower()
 
 
 # ---------- todo use ----------
 
-def test_use_switches_default_list(ready_to_use, runner: CliRunner):
-    runner.invoke(app, ["lists", "create", "personal"])
+def test_use_switches_default_project(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["projects", "create", "personal"])
     result = runner.invoke(app, ["use", "personal"])
     assert result.exit_code == 0
-    assert cfg.load_config().default_list == "personal"
+    assert cfg.load_config().default_project == "personal"
 
 
-def test_use_rejects_missing_list(ready_to_use, runner: CliRunner):
+def test_use_rejects_missing_project(ready_to_use, runner: CliRunner):
     result = runner.invoke(app, ["use", "nonexistent"])
     assert result.exit_code == 1
     assert "does not exist" in result.stdout
-    assert "todo lists create" in result.stdout
-    # default list should be unchanged
-    assert cfg.load_config().default_list == "work"
+    assert "todo projects create" in result.stdout
+    # default project should be unchanged
+    assert cfg.load_config().default_project == "work"
 
 
-# ---------- --list flag on task commands ----------
+# ---------- --project flag on task commands ----------
 
-def test_add_with_list_flag(ready_to_use, runner: CliRunner):
-    runner.invoke(app, ["lists", "create", "personal"])
+def test_add_with_project_flag(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["projects", "create", "personal"])
     result = runner.invoke(app, ["add", "personal task", "--project", "personal"])
     assert result.exit_code == 0
     work_tasks = store.load_tasks("work", cfg.load_config())
@@ -400,9 +400,9 @@ def test_add_with_list_flag(ready_to_use, runner: CliRunner):
     assert personal_tasks[0].name == "personal task"
 
 
-def test_list_with_list_flag(ready_to_use, runner: CliRunner):
-    runner.invoke(app, ["lists", "create", "personal"])
-    runner.invoke(app, ["add", "work-task"])  # default list
+def test_list_with_project_flag(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["projects", "create", "personal"])
+    runner.invoke(app, ["add", "work-task"])  # default project
     runner.invoke(app, ["add", "personal-task", "--project", "personal"])
     result = runner.invoke(app, ["list", "--project", "personal"])
     assert result.exit_code == 0
@@ -410,8 +410,8 @@ def test_list_with_list_flag(ready_to_use, runner: CliRunner):
     assert "work-task" not in result.stdout
 
 
-def test_done_with_list_flag(ready_to_use, runner: CliRunner):
-    runner.invoke(app, ["lists", "create", "personal"])
+def test_done_with_project_flag(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["projects", "create", "personal"])
     runner.invoke(app, ["add", "finish me", "--project", "personal"])
     result = runner.invoke(app, ["done", "1", "--project", "personal"])
     assert result.exit_code == 0
@@ -419,8 +419,8 @@ def test_done_with_list_flag(ready_to_use, runner: CliRunner):
     assert task.status == STATUS_DONE
 
 
-def test_rm_with_list_flag(ready_to_use, runner: CliRunner):
-    runner.invoke(app, ["lists", "create", "personal"])
+def test_rm_with_project_flag(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["projects", "create", "personal"])
     runner.invoke(app, ["add", "a", "--project", "personal"])
     runner.invoke(app, ["add", "b", "--project", "personal"])
     result = runner.invoke(app, ["rm", "1", "--project", "personal"])
@@ -428,16 +428,16 @@ def test_rm_with_list_flag(ready_to_use, runner: CliRunner):
     assert len(store.load_tasks("personal", cfg.load_config())) == 1
 
 
-def test_edit_with_list_flag(ready_to_use, runner: CliRunner):
-    runner.invoke(app, ["lists", "create", "personal"])
+def test_edit_with_project_flag(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["projects", "create", "personal"])
     runner.invoke(app, ["add", "old", "--project", "personal"])
     result = runner.invoke(app, ["edit", "1", "--name", "new", "--project", "personal"])
     assert result.exit_code == 0
     assert store.load_tasks("personal", cfg.load_config())[0].name == "new"
 
 
-def test_show_with_list_flag(ready_to_use, runner: CliRunner):
-    runner.invoke(app, ["lists", "create", "personal"])
+def test_show_with_project_flag(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["projects", "create", "personal"])
     runner.invoke(app, ["add", "detailed", "--project", "personal"])
     result = runner.invoke(app, ["show", "1", "--project", "personal"])
     assert result.exit_code == 0
@@ -446,8 +446,8 @@ def test_show_with_list_flag(ready_to_use, runner: CliRunner):
     assert "personal" in result.stdout
 
 
-def test_per_list_ids_are_independent_via_cli(ready_to_use, runner: CliRunner):
-    runner.invoke(app, ["lists", "create", "personal"])
+def test_per_project_ids_are_independent_via_cli(ready_to_use, runner: CliRunner):
+    runner.invoke(app, ["projects", "create", "personal"])
     runner.invoke(app, ["add", "work-1"])
     runner.invoke(app, ["add", "work-2"])
     runner.invoke(app, ["add", "personal-1", "--project", "personal"])
@@ -556,7 +556,7 @@ def test_list_with_tag_and_match(ready_to_use, runner: CliRunner):
 
 def test_list_with_project_flag_targets_correct_project(ready_to_use, runner: CliRunner):
     """--project on `todo list` selects which project's tasks to show."""
-    runner.invoke(app, ["lists", "create", "personal"])
+    runner.invoke(app, ["projects", "create", "personal"])
     runner.invoke(app, ["add", "work-task"])
     runner.invoke(app, ["add", "personal-task", "--project", "personal"])
     result = runner.invoke(app, ["list", "--project", "personal"])
@@ -565,9 +565,9 @@ def test_list_with_project_flag_targets_correct_project(ready_to_use, runner: Cl
     assert "work-task" not in result.stdout
 
 
-def test_list_view_combined_with_list_flag(ready_to_use, runner: CliRunner):
-    """--today should respect --list."""
-    runner.invoke(app, ["lists", "create", "personal"])
+def test_list_view_combined_with_project_flag(ready_to_use, runner: CliRunner):
+    """--today should respect --project."""
+    runner.invoke(app, ["projects", "create", "personal"])
     today_str = date.today().isoformat()
     runner.invoke(app, ["add", "work-today", "--due", today_str])
     runner.invoke(app, ["add", "personal-today", "--due", today_str, "--project", "personal"])

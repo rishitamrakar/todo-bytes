@@ -28,7 +28,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # ---------- request models ----------
 
 class CreateTaskRequest(BaseModel):
-    list: str  # the project to add to (legacy field name kept for now)
+    project: str
     name: str
     due: Optional[datetime] = None
     tags: list[str] = []
@@ -51,7 +51,7 @@ class ReorderRequest(BaseModel):
     ids: list[int]
 
 
-class CreateListRequest(BaseModel):
+class CreateProjectRequest(BaseModel):
     name: str
 
 
@@ -69,7 +69,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="todo-bytes UI", version="0.1.0")
     _mount_static_files(app)
     _register_root_route(app)
-    _register_list_routes(app)
+    _register_project_routes(app)
     _register_task_routes(app)
     _register_reorder_route(app)
     return app
@@ -87,16 +87,16 @@ def _register_root_route(app: FastAPI) -> None:
         return FileResponse(WEB_DIR / "index.html")
 
 
-# ---------- list endpoints ----------
+# ---------- project endpoints ----------
 
-def _register_list_routes(app: FastAPI) -> None:
-    @app.get("/api/lists")
-    def get_lists():
+def _register_project_routes(app: FastAPI) -> None:
+    @app.get("/api/projects")
+    def get_projects():
         config = cfg.load_config()
         names = store.all_projects(config)
         return {
-            "lists": [store.project_summary(n, config) for n in names],
-            "default": config.default_list,
+            "projects": [store.project_summary(n, config) for n in names],
+            "default": config.default_project,
         }
 
     @app.get("/api/projects/{project_name}")
@@ -117,23 +117,23 @@ def _register_list_routes(app: FastAPI) -> None:
             raise HTTPException(status_code=404, detail=str(err))
         return store.project_summary(project_name, config)
 
-    @app.post("/api/lists", status_code=201)
-    def create_list_endpoint(payload: CreateListRequest):
+    @app.post("/api/projects", status_code=201)
+    def create_project_endpoint(payload: CreateProjectRequest):
         config = cfg.load_config()
         try:
-            store.create_list(payload.name, config)
-        except store.ListAlreadyExistsError as err:
+            store.create_project(payload.name, config=config)
+        except store.ProjectAlreadyExistsError as err:
             raise HTTPException(status_code=409, detail=str(err))
-        return store.list_summary(payload.name, config)
+        return store.project_summary(payload.name, config)
 
-    @app.delete("/api/lists/{list_name}")
-    def delete_list_endpoint(list_name: str):
+    @app.delete("/api/projects/{project_name}")
+    def delete_project_endpoint(project_name: str):
         config = cfg.load_config()
         try:
-            store.delete_list(list_name, config)
-        except store.CannotDeleteDefaultListError as err:
+            store.delete_project(project_name, config)
+        except store.CannotDeleteDefaultProjectError as err:
             raise HTTPException(status_code=400, detail=str(err))
-        except store.ListNotFoundError as err:
+        except store.ProjectNotFoundError as err:
             raise HTTPException(status_code=404, detail=str(err))
         return {"ok": True}
 
@@ -143,7 +143,7 @@ def _register_list_routes(app: FastAPI) -> None:
 def _register_task_routes(app: FastAPI) -> None:
     @app.get("/api/tasks")
     def get_tasks(
-        list: str,
+        project: str,
         due: Optional[str] = None,
         due_from: Optional[str] = None,
         due_to: Optional[str] = None,
@@ -158,17 +158,17 @@ def _register_task_routes(app: FastAPI) -> None:
           Omitted = all statuses pass through.
         """
         config = cfg.load_config()
-        tasks = _load_or_404(list, config)
+        tasks = _load_or_404(project, config)
         filtered = _apply_filters(tasks, due, due_from, due_to, statuses)
         sorted_tasks = _sort_for_filters(filtered, due, statuses)
-        return {"list": list, "tasks": [t.to_dict() for t in sorted_tasks]}
+        return {"project": project, "tasks": [t.to_dict() for t in sorted_tasks]}
 
     @app.post("/api/tasks", status_code=201)
     def create_task(payload: CreateTaskRequest):
         config = cfg.load_config()
         try:
             task = store.add_task(
-                list_name=payload.list,
+                project_name=payload.project,
                 name=payload.name,
                 due=payload.due,
                 tags=payload.tags,
@@ -176,53 +176,53 @@ def _register_task_routes(app: FastAPI) -> None:
                 notes=payload.notes,
                 config=config,
             )
-        except store.ListNotFoundError as err:
+        except store.ProjectNotFoundError as err:
             raise HTTPException(status_code=404, detail=str(err))
         return task.to_dict()
 
-    @app.patch("/api/tasks/{list_name}/{task_id}")
-    def update_task_endpoint(list_name: str, task_id: int, payload: UpdateTaskRequest):
+    @app.patch("/api/tasks/{project_name}/{task_id}")
+    def update_task_endpoint(project_name: str, task_id: int, payload: UpdateTaskRequest):
         fields = payload.model_dump(exclude_unset=True)
         _manage_done_at_for_status_change(fields)
         config = cfg.load_config()
         try:
-            task = store.update_task(list_name, task_id, config=config, **fields)
+            task = store.update_task(project_name, task_id, config=config, **fields)
         except store.TaskNotFoundError as err:
             raise HTTPException(status_code=404, detail=str(err))
-        except store.ListNotFoundError as err:
+        except store.ProjectNotFoundError as err:
             raise HTTPException(status_code=404, detail=str(err))
         return task.to_dict()
 
-    @app.delete("/api/tasks/{list_name}/{task_id}")
-    def delete_task_endpoint(list_name: str, task_id: int):
+    @app.delete("/api/tasks/{project_name}/{task_id}")
+    def delete_task_endpoint(project_name: str, task_id: int):
         config = cfg.load_config()
         try:
-            store.delete_task(list_name, task_id, config=config)
+            store.delete_task(project_name, task_id, config=config)
         except store.TaskNotFoundError as err:
             raise HTTPException(status_code=404, detail=str(err))
-        except store.ListNotFoundError as err:
+        except store.ProjectNotFoundError as err:
             raise HTTPException(status_code=404, detail=str(err))
         return {"ok": True}
 
-    @app.post("/api/tasks/{list_name}/{task_id}/done")
-    def mark_done_endpoint(list_name: str, task_id: int):
+    @app.post("/api/tasks/{project_name}/{task_id}/done")
+    def mark_done_endpoint(project_name: str, task_id: int):
         config = cfg.load_config()
         try:
-            task = store.mark_done(list_name, task_id, config=config)
+            task = store.mark_done(project_name, task_id, config=config)
         except store.TaskNotFoundError as err:
             raise HTTPException(status_code=404, detail=str(err))
-        except store.ListNotFoundError as err:
+        except store.ProjectNotFoundError as err:
             raise HTTPException(status_code=404, detail=str(err))
         return task.to_dict()
 
-    @app.post("/api/tasks/{list_name}/{task_id}/reopen")
-    def reopen_endpoint(list_name: str, task_id: int):
+    @app.post("/api/tasks/{project_name}/{task_id}/reopen")
+    def reopen_endpoint(project_name: str, task_id: int):
         config = cfg.load_config()
         try:
-            task = store.reopen_task(list_name, task_id, config=config)
+            task = store.reopen_task(project_name, task_id, config=config)
         except store.TaskNotFoundError as err:
             raise HTTPException(status_code=404, detail=str(err))
-        except store.ListNotFoundError as err:
+        except store.ProjectNotFoundError as err:
             raise HTTPException(status_code=404, detail=str(err))
         return task.to_dict()
 
@@ -230,12 +230,12 @@ def _register_task_routes(app: FastAPI) -> None:
 # ---------- reorder ----------
 
 def _register_reorder_route(app: FastAPI) -> None:
-    @app.post("/api/lists/{list_name}/reorder")
-    def reorder_tasks(list_name: str, payload: ReorderRequest):
+    @app.post("/api/projects/{project_name}/reorder")
+    def reorder_tasks(project_name: str, payload: ReorderRequest):
         config = cfg.load_config()
-        tasks = _load_or_404(list_name, config)
+        tasks = _load_or_404(project_name, config)
         _apply_new_priorities(tasks, payload.ids)
-        store.save_tasks(list_name, tasks, config)
+        store.save_tasks(project_name, tasks, config)
         return {"ok": True}
 
 
@@ -264,10 +264,10 @@ def _manage_done_at_for_status_change(fields: dict) -> None:
 
 # ---------- helpers shared by routes ----------
 
-def _load_or_404(list_name: str, config: cfg.Config) -> list:
+def _load_or_404(project_name: str, config: cfg.Config) -> list:
     try:
-        return store.load_tasks(list_name, config)
-    except store.ListNotFoundError as err:
+        return store.load_tasks(project_name, config)
+    except store.ProjectNotFoundError as err:
         raise HTTPException(status_code=404, detail=str(err))
 
 

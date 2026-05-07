@@ -6,7 +6,7 @@
 
 Minimal todo app — tasks live in a YAML file, manage via CLI or a tiny browser UI.
 
-> **Status:** Phases 1–5 are in place — setup, task CRUD, multiple lists, view filters, and a lightweight web UI with drag-to-reorder.
+> **Status:** v1.1.0 — feature-complete for v1. Setup, task CRUD, multiple projects with metadata, view filters, web UI with drag-to-reorder, dark mode, and orthogonal date + status filters.
 
 ## What it is
 
@@ -20,7 +20,7 @@ Minimal todo app — tasks live in a YAML file, manage via CLI or a tiny browser
 
 I wanted something that is:
 - Plain text first (yaml = git-friendly, hand-editable, syncs via Dropbox/iCloud easily).
-- Multi-list — separate `work`, `personal`, `side-projects` lists.
+- Multi-project — separate `work`, `personal`, `side-projects` projects, each with its own YAML file.
 - One-command setup, then forget about it.
 - Scriptable from anywhere — CLI, UI, AI agent, cron — all using the same commands.
 
@@ -35,10 +35,10 @@ That's it. See [INSTALL.md](INSTALL.md) for full setup details.
 
 ## Quick start
 
-### Tasks (default list)
+### Tasks (default project)
 ```bash
 todo init                                    # one-time setup
-todo add "write blog post" --due tomorrow --tag blog --project rb
+todo add "write blog post" --due tomorrow --tag blog
 todo add "review PR" --due today --tag work
 todo list                                    # show open tasks
 todo show 1                                  # full details
@@ -47,21 +47,21 @@ todo edit 1 --name "new name" --due 2026-08-01
 todo rm 1                                    # delete
 ```
 
-### Multiple lists
+### Multiple projects
 ```bash
-todo lists show                              # see all lists with task counts
-todo lists create personal                   # add a new list
-todo lists delete personal                   # delete (asks for confirmation)
-todo use personal                            # switch default list
+todo projects show                           # see all projects with task counts
+todo projects create personal                # add a new project
+todo projects delete personal                # delete (asks for confirmation)
+todo use personal                            # switch default project
 
-# Use --list (or -l) to target a specific list on any task command
-todo add "buy groceries" --list personal
-todo list --list personal
-todo done 1 --list personal
+# Use --project (or -p) to target a specific project on any task command
+todo add "buy groceries" --project personal
+todo list --project personal
+todo done 1 --project personal
 ```
 
-Every task command supports `--list <name>` (or `-l`). Without it, the configured default list is used.
-Each list keeps its own task IDs (work has 1, 2, 3... and personal has 1, 2, 3... independently).
+Every task command supports `--project <name>` (or `-p`). Without it, the configured default project is used.
+Each project keeps its own task IDs (work has 1, 2, 3... and personal has 1, 2, 3... independently).
 
 ### Views (filter `todo list`)
 ```bash
@@ -74,24 +74,23 @@ todo list --no-due                           # open tasks with no due date
 todo list --done                             # done in last 7 days
 todo list --all                              # everything (open + done)
 
-# Tag and project filters compose with any view
+# Tag filter composes with any view; --project picks which project to read from
 todo list --tag work                         # all open tasks tagged work
 todo list --today --tag work                 # today's work tasks only
 todo list --tag work --tag blog              # AND match: must have both
-todo list --week --project rb                # rb tasks due this week
-todo list --today --list personal            # combine with --list
+todo list --week --project personal          # personal project tasks due this week
 ```
 
 Only one view flag at a time (`--today --tomorrow` will error). `--tag` and `--project` can be added on top of any view.
 
 ### Dates
 Dates accept: `today`, `tomorrow`, weekday names (`mon`, `friday`, ...), or ISO `YYYY-MM-DD`.
-Use `--due clear` / `--project clear` / `--tag clear` to remove a field on edit.
+Use `--due clear` / `--tag clear` to remove a field on edit.
 
 ### Config
 ```bash
 todo config show                             # see where things live
-todo config set default_list personal        # change default list (same as `todo use`)
+todo config set default_project personal     # change default project (same as `todo use`)
 todo config set data_dir ~/Dropbox/todos     # change where tasks live
 ```
 
@@ -102,7 +101,7 @@ todo ui --port 9000                          # custom port
 todo ui --no-browser                         # don't open a browser tab
 ```
 
-The UI has a sidebar with all lists (counts + default marker), top tabs for every view, and full add/edit/done/delete from the browser. Drag rows by the `⋮⋮` handle to reorder priority on the **Open** view — changes persist back to the YAML file instantly.
+The UI has a sidebar with all projects (counts + default marker + status dot) and an `📋 All Projects` cross-project view. The top bar has orthogonal **due-date chips** (Today / Tomorrow / Week / Next Week / Overdue / No due / Custom range) and a **status multiselect** to filter tasks. Full add/edit/done/delete from the browser, plus light/dark theme toggle. Drag rows by the `⋮⋮` handle to reorder priority — changes persist back to the YAML file instantly.
 
 **Requires the `[ui]` extras** (FastAPI + uvicorn). See [INSTALL.md](INSTALL.md#install-from-the-repo) for the full install command.
 
@@ -113,8 +112,8 @@ Three separate places, each with one job:
 | What | Path | What's in it |
 |---|---|---|
 | **Code** (the `todo` command) | `~/.local/pipx/venvs/todo-bytes/` (managed by pipx) | Python package + its dependencies |
-| **Global config** | `~/.config/todo-bytes/config.yaml` | `data_dir`, `default_list`, `ui_port` |
-| **Your tasks (data)** | `<data_dir>/<list-name>.yaml` (you pick `data_dir` at `todo init`) | All your tasks, plain YAML |
+| **Global config** | `~/.config/todo-bytes/config.yaml` | `data_dir`, `default_project`, `ui_port` |
+| **Your tasks (data)** | `<data_dir>/<project-name>.yaml` (you pick `data_dir` at `todo init`) | All your tasks, plain YAML |
 
 The global config tells the CLI **where** your data lives. You can edit it by hand, or use `todo config show` / `todo config set`.
 
@@ -130,7 +129,7 @@ UI (browser) → FastAPI    ─┘
 
 - **CLI and UI share the same core** — no duplicate logic.
 - **Data dir is picked by you** — keeps source code separate from your tasks.
-- **YAML per list** — `work.yaml`, `personal.yaml`, etc., all in your data dir.
+- **YAML per project** — `work.yaml`, `personal.yaml`, etc., all in your data dir.
 
 ## Schema versioning & migrations
 

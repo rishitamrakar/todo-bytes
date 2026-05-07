@@ -74,16 +74,16 @@ todo edit <id> --tag clear             # clear all tags
 todo edit <id> --description "Updated context"
 todo edit <id> --description clear     # remove description
 
-# Projects (renamed from "lists" but `lists` subcommand still works)
-todo lists show                        # all projects with task counts + default marker
-todo lists create <name>
-todo lists delete <name>               # refuses to delete the default project
+# Projects
+todo projects show                     # all projects with task counts + default marker
+todo projects create <name>
+todo projects delete <name>            # refuses to delete the default project
 todo use <name>                        # set default project
 
 # Config
 todo config show
 todo config set data_dir <path>
-todo config set default_list <name>
+todo config set default_project <name>
 todo config set ui_port <number>
 
 # Web UI (only if you want to show the user a visual view)
@@ -133,7 +133,7 @@ Bare dates default to **end of day** (23:59:59), so `--due 2026-05-20` means "by
 ```bash
 todo list --today
 ```
-For all projects: loop over `todo lists show` projects and run `todo list --today --project <name>`, or just open the UI's "All Projects" view.
+For all projects: loop over `todo projects show` projects and run `todo list --today --project <name>`, or just open the UI's "All Projects" view.
 
 **"Add 'Review pricing doc' for tomorrow with tag work"**
 ```bash
@@ -154,7 +154,7 @@ If the task is in a non-default project: `todo done 5 --project <name>`.
 
 **"What projects do I have?"**
 ```bash
-todo lists show
+todo projects show
 ```
 Returns project names with open / done / total counts and a `★` marker on the default.
 
@@ -170,7 +170,7 @@ The CLI uses Rich for formatted output (tables, colors). The output is human-rea
 
 - `todo list` → table with columns `id`, `name`, `due`, `tags`, `priority`, `status`
 - `todo show <id>` → key-value table
-- `todo lists show` → table with `name`, `open`, `done`, `total`, default marker
+- `todo projects show` → table with `name`, `open`, `done`, `total`, default marker
 - Errors: red, prefixed with `[red]✗[/red]` (Rich tag in source; renders as colored text)
 - Successes: green, prefixed with `✓`
 
@@ -217,7 +217,7 @@ If the user asks for any of these, say it's not supported and offer the closest 
 
 ## Errors the agent should handle gracefully
 
-- `Project '<name>' not found` → suggest `todo lists show` to see real project names
+- `Project '<name>' not found` → suggest `todo projects show` to see real project names
 - `Task <id> not found in <project>` → suggest `todo list` to list current ids
 - `Cannot delete '<name>' — it is the default project` → suggest `todo use <other>` first
 - `<file> declares schema_version=N, but this build only understands up to M` → user needs to upgrade todo-bytes (`pipx install --force ...`)

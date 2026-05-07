@@ -107,7 +107,7 @@ body {
   flex-shrink: 0;
 }
 
-.lists {
+.projects-nav {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -115,7 +115,7 @@ body {
   overflow-y: auto;
 }
 
-.list-item {
+.project-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -129,11 +129,11 @@ body {
   color: var(--text);
 }
 
-.list-item:hover { background: var(--row-hover); }
-.list-item.active { background: var(--accent); color: white; }
-.list-item .count { font-size: 12px; opacity: 0.7; }
-.list-item.active .count { opacity: 0.9; }
-.list-item .default-mark { margin-left: 4px; opacity: 0.6; font-size: 11px; }
+.project-item:hover { background: var(--row-hover); }
+.project-item.active { background: var(--accent); color: white; }
+.project-item .count { font-size: 12px; opacity: 0.7; }
+.project-item.active .count { opacity: 0.9; }
+.project-item .default-mark { margin-left: 4px; opacity: 0.6; font-size: 11px; }
 
 /* Main */
 .main {
@@ -673,10 +673,10 @@ body {
 }
 .btn-mini { padding: 3px 8px; font-size: 11px; }
 
-.list-item {
+.project-item {
   position: relative;
 }
-.list-item .edit-btn {
+.project-item .edit-btn {
   background: transparent;
   border: none;
   color: inherit;
@@ -686,10 +686,10 @@ body {
   opacity: 0;
   transition: opacity 0.1s;
 }
-.list-item:hover .edit-btn { opacity: 0.7; }
-.list-item .edit-btn:hover { opacity: 1; }
+.project-item:hover .edit-btn { opacity: 0.7; }
+.project-item .edit-btn:hover { opacity: 1; }
 
-.list-item .project-status-dot {
+.project-item .project-status-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -697,11 +697,11 @@ body {
   margin-right: 6px;
   background: var(--text-dim);
 }
-.list-item.status-todo .project-status-dot { background: var(--text-dim); }
-.list-item.status-in-progress .project-status-dot { background: var(--accent); }
-.list-item.status-done .project-status-dot { background: var(--success); }
-.list-item.status-hold .project-status-dot { background: var(--warning); }
-.list-item.status-cancelled .project-status-dot { background: var(--danger); }
+.project-item.status-todo .project-status-dot { background: var(--text-dim); }
+.project-item.status-in-progress .project-status-dot { background: var(--accent); }
+.project-item.status-done .project-status-dot { background: var(--success); }
+.project-item.status-hold .project-status-dot { background: var(--warning); }
+.project-item.status-cancelled .project-status-dot { background: var(--danger); }
 
 /* 'All visible' pseudo-project at the top of the sidebar list */
 .all-projects-item {

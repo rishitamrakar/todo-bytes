@@ -10,9 +10,9 @@
 // ---------- state ----------
 
 const state = {
-  lists: [],
-  defaultList: null,
-  activeList: null,
+  projects: [],
+  defaultProject: null,
+  activeProject: null,
   // Top bar filters (orthogonal):
   //   activeDue: null | 'today' | 'tomorrow' | 'week' | 'next-week' | 'overdue' | 'no-due' | 'custom'
   //   activeTaskStatuses: Set of statuses to show. Default = all 5 (no filter).
@@ -45,11 +45,11 @@ const ALL_STATUS_VALUES = ['todo', 'in-progress', 'done', 'hold', 'cancelled'];
 // ---------- api ----------
 
 const api = {
-  async getLists() {
-    return fetchJson('/api/lists');
+  async getProjects() {
+    return fetchJson('/api/projects');
   },
-  async getTasks(listName, filters = {}) {
-    const params = new URLSearchParams({ list: listName });
+  async getTasks(projectName, filters = {}) {
+    const params = new URLSearchParams({ project: projectName });
     if (filters.due) params.set('due', filters.due);
     if (filters.due_from) params.set('due_from', filters.due_from);
     if (filters.due_to) params.set('due_to', filters.due_to);
@@ -63,23 +63,23 @@ const api = {
   async createTask(payload) {
     return fetchJson('/api/tasks', { method: 'POST', body: payload });
   },
-  async updateTask(listName, id, payload) {
-    return fetchJson(`/api/tasks/${listName}/${id}`, { method: 'PATCH', body: payload });
+  async updateTask(projectName, id, payload) {
+    return fetchJson(`/api/tasks/${projectName}/${id}`, { method: 'PATCH', body: payload });
   },
-  async deleteTask(listName, id) {
-    return fetchJson(`/api/tasks/${listName}/${id}`, { method: 'DELETE' });
+  async deleteTask(projectName, id) {
+    return fetchJson(`/api/tasks/${projectName}/${id}`, { method: 'DELETE' });
   },
-  async markDone(listName, id) {
-    return fetchJson(`/api/tasks/${listName}/${id}/done`, { method: 'POST' });
+  async markDone(projectName, id) {
+    return fetchJson(`/api/tasks/${projectName}/${id}/done`, { method: 'POST' });
   },
-  async reopen(listName, id) {
-    return fetchJson(`/api/tasks/${listName}/${id}/reopen`, { method: 'POST' });
+  async reopen(projectName, id) {
+    return fetchJson(`/api/tasks/${projectName}/${id}/reopen`, { method: 'POST' });
   },
-  async reorder(listName, ids) {
-    return fetchJson(`/api/lists/${listName}/reorder`, { method: 'POST', body: { ids } });
+  async reorder(projectName, ids) {
+    return fetchJson(`/api/projects/${projectName}/reorder`, { method: 'POST', body: { ids } });
   },
-  async createList(name) {
-    return fetchJson('/api/lists', { method: 'POST', body: { name } });
+  async createProject(name) {
+    return fetchJson('/api/projects', { method: 'POST', body: { name } });
   },
   async getProject(name) {
     return fetchJson(`/api/projects/${encodeURIComponent(name)}`);
@@ -88,7 +88,7 @@ const api = {
     return fetchJson(`/api/projects/${encodeURIComponent(name)}`, { method: 'PATCH', body: payload });
   },
   async deleteProject(name) {
-    return fetchJson(`/api/lists/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    return fetchJson(`/api/projects/${encodeURIComponent(name)}`, { method: 'DELETE' });
   },
 };
 
@@ -106,10 +106,10 @@ async function fetchJson(url, opts = {}) {
 }
 
 
-// ---------- render: lists sidebar ----------
+// ---------- render: projects sidebar ----------
 
 function visibleProjects() {
-  return state.lists.filter(p =>
+  return state.projects.filter(p =>
     state.visibleStatuses.has(p.status || 'todo') && projectPassesTagFilter(p)
   );
 }
@@ -120,25 +120,25 @@ function projectPassesTagFilter(project) {
   return tags.some(t => state.visibleTags.has(t));
 }
 
-function renderLists() {
-  const el = document.getElementById('lists');
+function renderProjectsNav() {
+  const el = document.getElementById("projects-list");
   el.innerHTML = '';
   const projects = visibleProjects();
-  projects.forEach(p => el.appendChild(buildListItem(p)));
+  projects.forEach(p => el.appendChild(buildProjectItem(p)));
   renderAllProjectsButton(projects);
 }
 
 function renderAllProjectsButton(visible) {
   const btn = document.getElementById('all-projects-btn');
-  btn.classList.toggle('active', state.activeList === ALL_PROJECTS);
-  document.getElementById('all-count').textContent = `${visible.length}/${state.lists.length}`;
+  btn.classList.toggle('active', state.activeProject === ALL_PROJECTS);
+  document.getElementById('all-count').textContent = `${visible.length}/${state.projects.length}`;
 }
 
 function renderTagFilter() {
   const el = document.getElementById('tag-filter-list');
   el.innerHTML = '';
   const allTags = collectAllTags();
-  const hasUntagged = state.lists.some(p => !p.tags || p.tags.length === 0);
+  const hasUntagged = state.projects.some(p => !p.tags || p.tags.length === 0);
 
   // Render from pending state if the panel is open, else from actual state.
   // (Tag filter is dynamic so we always re-render rather than just sync.)
@@ -154,7 +154,7 @@ function renderTagFilter() {
 
 function collectAllTags() {
   const set = new Set();
-  state.lists.forEach(p => (p.tags || []).forEach(t => set.add(t)));
+  state.projects.forEach(p => (p.tags || []).forEach(t => set.add(t)));
   return [...set].sort();
 }
 
@@ -192,15 +192,15 @@ function buildUntaggedCheckbox(checked) {
   return lbl;
 }
 
-function buildListItem(project) {
+function buildProjectItem(project) {
   const div = document.createElement('div');
   const status = project.status || 'todo';
-  div.className = 'list-item status-' + status + (project.name === state.activeList ? ' active' : '');
+  div.className = 'project-item status-' + status + (project.name === state.activeProject ? ' active' : '');
   div.innerHTML = `
     <span style="display:flex; align-items:center; flex:1;">
       <span class="project-status-dot"></span>
       ${escape(project.name)}
-      ${project.name === state.defaultList ? '<span class="default-mark">★</span>' : ''}
+      ${project.name === state.defaultProject ? '<span class="default-mark">★</span>' : ''}
     </span>
     <button class="edit-btn" data-action="edit-project" title="Edit project">✎</button>
     <span class="count">${project.open}/${project.total}</span>
@@ -211,7 +211,7 @@ function buildListItem(project) {
       openEditProjectModal(project.name);
       return;
     }
-    switchList(project.name);
+    switchProject(project.name);
   });
   return div;
 }
@@ -267,7 +267,7 @@ function renderTaskStatusChip() {
 function renderQuickAddVisibility() {
   // Quick-add + drag-reorder only when no date filter is active and we're on a single project.
   const noDateFilter = state.activeDue === null;
-  const isSingleProject = state.activeList !== ALL_PROJECTS;
+  const isSingleProject = state.activeProject !== ALL_PROJECTS;
   const allowEditing = noDateFilter && isSingleProject;
   document.getElementById('reorder-hint').hidden = !allowEditing;
   document.getElementById('quick-add').hidden = !allowEditing;
@@ -298,7 +298,7 @@ function renderTasks() {
   empty.hidden = true;
   state.tasks.forEach(task => ul.appendChild(buildTaskRow(task)));
   // Drag-reorder only makes sense within a single project with no date filter.
-  if (state.activeDue === null && state.activeList !== ALL_PROJECTS) {
+  if (state.activeDue === null && state.activeProject !== ALL_PROJECTS) {
     enableDragReorder(ul);
   }
 }
@@ -309,7 +309,7 @@ function buildTaskRow(task) {
   li.dataset.taskId = task.id;
   // In the All view, show project as a badge so user knows where each task is from.
   // In a single-project view, the project is implicit — hide the badge.
-  const showProjectBadge = state.activeList === ALL_PROJECTS;
+  const showProjectBadge = state.activeProject === ALL_PROJECTS;
   const hasContent = (task.description && task.description.trim()) || (task.notes && task.notes.trim());
   li.innerHTML = `
     <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
@@ -374,7 +374,7 @@ function enableDragReorder(ul) {
 async function persistNewOrder(ul) {
   const ids = Array.from(ul.children).map(li => Number(li.dataset.taskId));
   try {
-    await api.reorder(state.activeList, ids);
+    await api.reorder(state.activeProject, ids);
   } catch (err) {
     alert('Reorder failed: ' + err.message);
     await refreshTasks();
@@ -384,27 +384,27 @@ async function persistNewOrder(ul) {
 
 // ---------- actions ----------
 
-async function refreshLists() {
-  const data = await api.getLists();
-  state.lists = data.lists;
-  state.defaultList = data.default;
+async function refreshProjects() {
+  const data = await api.getProjects();
+  state.projects = data.projects;
+  state.defaultProject = data.default;
   // Auto-include any tags discovered on existing projects
   collectAllTags().forEach(t => state.visibleTags.add(t));
-  if (!state.activeList && state.lists.length > 0) {
-    state.activeList = state.defaultList || state.lists[0].name;
+  if (!state.activeProject && state.projects.length > 0) {
+    state.activeProject = state.defaultProject || state.projects[0].name;
   }
-  renderLists();
+  renderProjectsNav();
   renderTagFilter();
-  updateListTitle();
+  updateProjectTitle();
   renderStats();
 }
 
 async function refreshTasks() {
-  if (!state.activeList) return;
-  if (state.activeList === ALL_PROJECTS) {
+  if (!state.activeProject) return;
+  if (state.activeProject === ALL_PROJECTS) {
     state.tasks = await fetchAllVisibleTasks();
   } else {
-    const data = await api.getTasks(state.activeList, currentTaskFilters());
+    const data = await api.getTasks(state.activeProject, currentTaskFilters());
     state.tasks = data.tasks;
   }
   renderTasks();
@@ -440,20 +440,20 @@ async function fetchAllVisibleTasks() {
     });
 }
 
-function switchList(name) {
-  state.activeList = name;
-  renderLists();
+function switchProject(name) {
+  state.activeProject = name;
+  renderProjectsNav();
   renderViewTabs();
-  updateListTitle();
+  updateProjectTitle();
   renderStats();
   refreshTasks();
 }
 
 function switchToAllProjects() {
-  state.activeList = ALL_PROJECTS;
-  renderLists();
+  state.activeProject = ALL_PROJECTS;
+  renderProjectsNav();
   renderViewTabs();
-  updateListTitle();
+  updateProjectTitle();
   renderStats();
   refreshTasks();
 }
@@ -559,17 +559,17 @@ function closeAllTopBarPanels() {
   state.pending.taskStatuses = null;
 }
 
-function updateListTitle() {
-  const title = state.activeList === ALL_PROJECTS
-    ? `All Projects (${visibleProjects().length} of ${state.lists.length})`
-    : (state.activeList || '—');
-  document.getElementById('list-title').textContent = title;
+function updateProjectTitle() {
+  const title = state.activeProject === ALL_PROJECTS
+    ? `All Projects (${visibleProjects().length} of ${state.projects.length})`
+    : (state.activeProject || '—');
+  document.getElementById("project-title").textContent = title;
 }
 
-// In All Projects view state.activeList is the sentinel '__all__'. Task-level
+// In All Projects view state.activeProject is the sentinel '__all__'. Task-level
 // operations must target the task's own project, not the sentinel.
 function projectForTask(task) {
-  return state.activeList === ALL_PROJECTS ? task.project : state.activeList;
+  return state.activeProject === ALL_PROJECTS ? task.project : state.activeProject;
 }
 
 async function toggleTaskDone(task) {
@@ -582,14 +582,14 @@ async function toggleTaskDone(task) {
   } else {
     return;  // hold, cancelled — use edit modal
   }
-  await refreshLists();
+  await refreshProjects();
   await refreshTasks();
 }
 
 async function deleteTask(task) {
   if (!confirm(`Delete "${task.name}"?`)) return;
   await api.deleteTask(projectForTask(task), task.id);
-  await refreshLists();
+  await refreshProjects();
   await refreshTasks();
 }
 
@@ -601,18 +601,18 @@ async function handleQuickAddSubmit(event) {
   const input = document.getElementById('quick-add-input');
   const name = input.value.trim();
   if (!name) return;
-  if (!state.activeList) {
-    alert('Pick a list first.');
+  if (!state.activeProject) {
+    alert('Pick a project first.');
     return;
   }
   try {
-    await api.createTask({ list: state.activeList, name });
+    await api.createTask({ project: state.activeProject, name });
   } catch (err) {
     alert('Add failed: ' + err.message);
     return;
   }
   input.value = '';
-  await refreshLists();
+  await refreshProjects();
   await refreshTasks();
   input.focus();  // ready for the next task
 }
@@ -626,14 +626,14 @@ async function handleNewProjectSubmit(event) {
   const name = input.value.trim();
   if (!name) return;
   try {
-    await api.createList(name);
+    await api.createProject(name);
   } catch (err) {
     alert('Create project failed: ' + err.message);
     return;
   }
   input.value = '';
-  state.activeList = name;
-  await refreshLists();
+  state.activeProject = name;
+  await refreshProjects();
   await refreshTasks();
   input.focus();
 }
@@ -737,10 +737,10 @@ function applyFilter(target) {
     state.showUntagged = state.pending.showUntagged;
   }
   closeAllFilterPanels();
-  renderLists();
+  renderProjectsNav();
   // If the active project is now filtered out, fall back to All Projects view
-  if (state.activeList && state.activeList !== ALL_PROJECTS) {
-    const stillVisible = visibleProjects().some(p => p.name === state.activeList);
+  if (state.activeProject && state.activeProject !== ALL_PROJECTS) {
+    const stillVisible = visibleProjects().some(p => p.name === state.activeProject);
     if (!stillVisible) switchToAllProjects();
   }
 }
@@ -789,7 +789,7 @@ async function submitProjectForm(event) {
     return;
   }
   hideModal('project-modal');
-  await refreshLists();
+  await refreshProjects();
 }
 
 async function deleteActiveProject() {
@@ -803,8 +803,8 @@ async function deleteActiveProject() {
     return;
   }
   hideModal('project-modal');
-  if (state.activeList === name) state.activeList = null;
-  await refreshLists();
+  if (state.activeProject === name) state.activeProject = null;
+  await refreshProjects();
   await refreshTasks();
 }
 
@@ -844,7 +844,7 @@ async function submitTaskForm(event) {
     return;
   }
   hideModal('task-modal');
-  await refreshLists();
+  await refreshProjects();
   await refreshTasks();
 }
 
@@ -926,10 +926,10 @@ function combineDateTimeToIso(dateStr, timeStr) {
 // In All view: combined stats across all visible projects.
 function renderStats() {
   let open = 0, done = 0;
-  if (state.activeList === ALL_PROJECTS) {
+  if (state.activeProject === ALL_PROJECTS) {
     visibleProjects().forEach(p => { open += p.open || 0; done += p.done || 0; });
   } else {
-    const summary = state.lists.find(l => l.name === state.activeList);
+    const summary = state.projects.find(l => l.name === state.activeProject);
     open = summary ? summary.open : 0;
     done = summary ? summary.done : 0;
   }
@@ -1022,6 +1022,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('project-delete').addEventListener('click', deleteActiveProject);
 
   renderViewTabs();
-  await refreshLists();
+  await refreshProjects();
   await refreshTasks();
 });
