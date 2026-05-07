@@ -519,9 +519,15 @@ function handleFilterAction(event) {
   const action = btn.dataset.action;
   const target = btn.dataset.target;
   if (action === 'apply') applyFilter(target);
-  else if (action === 'cancel') closeAllFilterPanels();
   else if (action === 'select-all') selectAllInPending(target);
-  else if (action === 'deselect-all') deselectAllInPending(target);
+}
+
+// Double-click on Select all = deselect all. Single-click selects, dblclick
+// fires after a brief select-all flicker which doubles as visual feedback.
+function handleFilterDblClick(event) {
+  const btn = event.target.closest('button[data-action="select-all"]');
+  if (!btn) return;
+  deselectAllInPending(btn.dataset.target);
 }
 
 function selectAllInPending(target) {
@@ -781,7 +787,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('tag-filter-btn').addEventListener('click', () => toggleFilterPanel('tag'));
   document.getElementById('status-filter').addEventListener('change', handleStatusCheckboxChange);
   document.getElementById('status-filter').addEventListener('click', handleFilterAction);
+  document.getElementById('status-filter').addEventListener('dblclick', handleFilterDblClick);
   document.getElementById('tag-filter').addEventListener('click', handleFilterAction);
+  document.getElementById('tag-filter').addEventListener('dblclick', handleFilterDblClick);
 
   // 'All Projects' button at the top of the sidebar
   document.getElementById('all-projects-btn').addEventListener('click', switchToAllProjects);
