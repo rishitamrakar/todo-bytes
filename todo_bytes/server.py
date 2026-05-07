@@ -51,6 +51,10 @@ class ReorderRequest(BaseModel):
     ids: list[int]
 
 
+class MoveTaskRequest(BaseModel):
+    to_project: str
+
+
 class CreateProjectRequest(BaseModel):
     name: str
 
@@ -224,6 +228,19 @@ def _register_task_routes(app: FastAPI) -> None:
             raise HTTPException(status_code=404, detail=str(err))
         except store.ProjectNotFoundError as err:
             raise HTTPException(status_code=404, detail=str(err))
+        return task.to_dict()
+
+    @app.post("/api/tasks/{project_name}/{task_id}/move")
+    def move_task_endpoint(project_name: str, task_id: int, payload: MoveTaskRequest):
+        config = cfg.load_config()
+        try:
+            task = store.move_task(project_name, task_id, payload.to_project, config=config)
+        except store.TaskNotFoundError as err:
+            raise HTTPException(status_code=404, detail=str(err))
+        except store.ProjectNotFoundError as err:
+            raise HTTPException(status_code=404, detail=str(err))
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err))
         return task.to_dict()
 
 

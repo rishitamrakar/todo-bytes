@@ -23,6 +23,7 @@ const state = {
   tasks: [],
   editingTaskId: null,  // null = creating new task
   editingTaskProject: null,  // project the task being edited belongs to (needed in All Projects view)
+  taskFormSnapshot: null,  // serialized form state on open; used to detect unsaved changes
   // Sidebar filters — status + tags. Both must pass for a project to show.
   // Default: active statuses; all tags + untagged checked.
   visibleStatuses: new Set(['todo', 'in-progress']),
@@ -74,6 +75,12 @@ const api = {
   },
   async reopen(projectName, id) {
     return fetchJson(`/api/tasks/${projectName}/${id}/reopen`, { method: 'POST' });
+  },
+  async moveTask(fromProject, id, toProject) {
+    return fetchJson(`/api/tasks/${fromProject}/${id}/move`, {
+      method: 'POST',
+      body: { to_project: toProject },
+    });
   },
   async reorder(projectName, ids) {
     return fetchJson(`/api/projects/${projectName}/reorder`, { method: 'POST', body: { ids } });
@@ -342,7 +349,7 @@ function statusTitle(status) {
 }
 
 function wireTaskRowEvents(li, task) {
-  li.querySelector('.task-name').addEventListener('click', () => openEditModal(task));
+  li.querySelector('.task-name').addEventListener('click', () => handleTaskNameClick(task));
   li.querySelector('.status-circle').addEventListener('click', e => {
     e.stopPropagation();
     toggleTaskDone(task);
@@ -598,23 +605,28 @@ async function deleteTask(task) {
 
 async function handleQuickAddSubmit(event) {
   event.preventDefault();
-  const input = document.getElementById('quick-add-input');
-  const name = input.value.trim();
+  const nameInput = document.getElementById('quick-add-input');
+  const dateInput = document.getElementById('quick-add-date');
+  const timeInput = document.getElementById('quick-add-time');
+  const name = nameInput.value.trim();
   if (!name) return;
   if (!state.activeProject) {
     alert('Pick a project first.');
     return;
   }
+  const due = combineDateTimeToIso(dateInput.value, timeInput.value);
   try {
-    await api.createTask({ project: state.activeProject, name });
+    await api.createTask({ project: state.activeProject, name, due });
   } catch (err) {
     alert('Add failed: ' + err.message);
     return;
   }
-  input.value = '';
+  nameInput.value = '';
+  dateInput.value = '';
+  timeInput.value = '';
   await refreshProjects();
   await refreshTasks();
-  input.focus();  // ready for the next task
+  nameInput.focus();  // ready for the next task
 }
 
 
@@ -811,12 +823,76 @@ async function deleteActiveProject() {
 
 // ---------- modal: edit task ----------
 
+function handleTaskNameClick(task) {
+  const modalOpen = !document.getElementById('task-modal').hidden;
+  // Click same task again → toggle close (Notion-style)
+  if (modalOpen && state.editingTaskId === task.id) {
+    tryCloseTaskPanel();
+    return;
+  }
+  // Click different task while editing → ask before discarding, then switch
+  if (modalOpen && taskFormIsDirty()) {
+    if (!window.confirm('Discard unsaved changes?')) return;
+  }
+  openEditModal(task);
+}
+
 function openEditModal(task) {
   state.editingTaskId = task.id;
   state.editingTaskProject = projectForTask(task);
   document.getElementById('modal-title').textContent = 'Edit task';
   fillTaskForm(task);
   showModal('task-modal');
+  state.taskFormSnapshot = snapshotTaskForm();
+  // Attach outside-click listener on next tick so the opening click
+  // doesn't immediately trigger close.
+  setTimeout(() => {
+    document.addEventListener('mousedown', handleOutsideClickToClose);
+  }, 0);
+}
+
+function handleOutsideClickToClose(e) {
+  const modal = document.getElementById('task-modal');
+  if (modal.hidden) {
+    document.removeEventListener('mousedown', handleOutsideClickToClose);
+    return;
+  }
+  if (modal.contains(e.target)) return;  // click inside the panel
+  // Let task-row clicks be handled by handleTaskNameClick (toggle/switch logic)
+  if (e.target.closest('.task-name') || e.target.closest('.task')) return;
+  tryCloseTaskPanel();
+}
+
+function snapshotTaskForm() {
+  const form = document.getElementById('task-form');
+  return JSON.stringify(readTaskForm(form)) + '|' + form.elements.project.value;
+}
+
+function taskFormIsDirty() {
+  if (state.taskFormSnapshot === null) return false;
+  return snapshotTaskForm() !== state.taskFormSnapshot;
+}
+
+function tryCloseTaskPanel() {
+  if (!taskFormIsDirty()) {
+    closeTaskPanelAnimated();
+    return;
+  }
+  if (window.confirm('Discard unsaved changes?')) {
+    closeTaskPanelAnimated();
+  }
+}
+
+function closeTaskPanelAnimated() {
+  const modal = document.getElementById('task-modal');
+  if (modal.hidden) return;
+  modal.classList.add('closing');
+  const card = modal.querySelector('.modal-card');
+  card.addEventListener('animationend', function onEnd() {
+    card.removeEventListener('animationend', onEnd);
+    modal.classList.remove('closing');
+    modal.hidden = true;
+  }, { once: true });
 }
 
 function fillTaskForm(task) {
@@ -829,23 +905,46 @@ function fillTaskForm(task) {
   form.elements.status.value = task.status || 'todo';
   form.elements.description.value = task.description || '';
   form.elements.notes.value = task.notes || '';
-  document.getElementById('meta-project').textContent = task.project || '—';
+  populateProjectDropdown(form.elements.project, task.project);
   document.getElementById('meta-created').textContent = task.created || '—';
+}
+
+function populateProjectDropdown(select, currentProject) {
+  select.innerHTML = '';
+  state.projects.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.name;
+    opt.textContent = p.name;
+    if (p.name === currentProject) opt.selected = true;
+    select.appendChild(opt);
+  });
 }
 
 async function submitTaskForm(event) {
   event.preventDefault();
   if (state.editingTaskId === null) return;  // edit-only modal
-  const payload = readTaskForm(event.target);
+  const form = event.target;
+  const targetProject = form.elements.project.value;
+  const sourceProject = state.editingTaskProject;
+  const payload = readTaskForm(form);
   try {
-    await api.updateTask(state.editingTaskProject, state.editingTaskId, payload);
+    await saveTaskEdits(sourceProject, state.editingTaskId, targetProject, payload);
   } catch (err) {
     alert('Save failed: ' + err.message);
     return;
   }
-  hideModal('task-modal');
+  closeTaskPanelAnimated();
   await refreshProjects();
   await refreshTasks();
+}
+
+async function saveTaskEdits(sourceProject, taskId, targetProject, payload) {
+  if (targetProject && targetProject !== sourceProject) {
+    const moved = await api.moveTask(sourceProject, taskId, targetProject);
+    await api.updateTask(targetProject, moved.id, payload);
+    return;
+  }
+  await api.updateTask(sourceProject, taskId, payload);
 }
 
 function readTaskForm(form) {
@@ -859,8 +958,8 @@ function readTaskForm(form) {
     tags,
     status: form.elements.status.value,
     description: form.elements.description.value.trim() || null,
-    notes: form.elements.notes.value || null,  // preserve newlines
-    // project intentionally omitted — it's auto-set to the parent project
+    notes: form.elements.notes.value || null,
+    // project handled separately via moveTask if changed
   };
 }
 
@@ -991,8 +1090,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('task-status-filter').addEventListener('dblclick', handleTaskStatusDblClick);
 
   // Task modal
-  document.getElementById('modal-cancel').addEventListener('click', () => hideModal('task-modal'));
+  document.getElementById('modal-cancel').addEventListener('click', tryCloseTaskPanel);
   document.getElementById('task-form').addEventListener('submit', submitTaskForm);
+
+  // Esc closes any open modal (asks before discarding unsaved task changes)
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (!document.getElementById('task-modal').hidden) tryCloseTaskPanel();
+    hideModal('project-modal');
+  });
+
+
 
   // Inline task quick-add
   document.getElementById('quick-add').addEventListener('submit', handleQuickAddSubmit);

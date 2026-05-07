@@ -548,7 +548,6 @@ body {
 }
 
 .quick-add input {
-  flex: 1;
   border: none;
   outline: none;
   background: transparent;
@@ -556,6 +555,27 @@ body {
   font-family: inherit;
   color: var(--text);
   padding: 0;
+}
+
+.quick-add-name {
+  flex: 1;
+}
+
+.quick-add-date,
+.quick-add-time {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 2px 4px !important;
+  border-radius: 4px;
+}
+
+.quick-add-date:hover,
+.quick-add-time:hover,
+.quick-add-date:focus,
+.quick-add-time:focus {
+  color: var(--text);
+  background: var(--row-hover);
 }
 
 .quick-add input::placeholder {
@@ -856,3 +876,57 @@ body {
 /* SortableJS classes */
 .sortable-ghost { opacity: 0.4; }
 .sortable-chosen { background: var(--row-hover); }
+
+/* Side panel variant of .modal — slides in from the right, keeps task list visible.
+   Used for the task edit panel; project edit stays as a centered modal. */
+.modal.side-panel {
+  background: transparent;       /* no dim overlay */
+  display: block;                /* override .modal flex centering */
+  pointer-events: none;          /* let clicks pass through to the page */
+  inset: auto;                   /* reset from .modal's inset:0 */
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(440px, 90vw);
+  z-index: 100;
+}
+
+/* Higher specificity than .modal.side-panel above so the `hidden` attr wins. */
+.modal.side-panel[hidden] {
+  display: none;
+}
+
+.modal.side-panel .modal-card {
+  pointer-events: auto;          /* re-enable inside the panel */
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  border-radius: 0;
+  box-shadow: -10px 0 40px rgba(0, 0, 0, 0.15);
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  animation: slide-in-right 0.18s ease-out;
+}
+
+.modal.side-panel.closing .modal-card {
+  animation: slide-out-right 0.18s ease-in forwards;
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+@keyframes slide-out-right {
+  from { transform: translateX(0); }
+  to   { transform: translateX(100%); }
+}
+
+.modal.side-panel .modal-card select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  background: var(--card);
+  color: var(--text);
+}

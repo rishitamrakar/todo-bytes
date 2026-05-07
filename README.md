@@ -17,12 +17,17 @@ A minimal todo app. Tasks live in plain YAML files on your disk. Drive everythin
 
 ## Install
 
+Pick one based on whether you want the web UI:
+
 ```bash
+# CLI + web UI (recommended)
 pipx install 'todo-bytes[ui] @ git+https://github.com/rishitamrakar/todo-bytes.git'
-todo init
+
+# CLI only (smaller install, no FastAPI/uvicorn)
+pipx install git+https://github.com/rishitamrakar/todo-bytes.git
 ```
 
-That's it. `[ui]` adds the web UI — drop it if you only want the CLI.
+Then run `todo init` for one-time setup (asks where tasks live + default project name).
 
 ## Quick start
 
@@ -73,11 +78,26 @@ Sidebar with all projects, due-date chips and status filter at the top, drag row
 todo-bytes ships with an agent skill. Install it where your agent looks for skills:
 
 ```bash
-todo skill install                          # → ~/.agents/skills/todo-bytes/
-todo skill install --dir ~/my-skills        # → custom location
+todo skill install                          # default → ~/.agents/skills/todo-bytes/
+todo skill install --dir ~/my-skills        # custom parent dir
+todo skill install --dir .                  # install in current dir
 ```
 
-The agent reads `SKILL.md` and uses the `todo` CLI to manage your tasks for you.
+The default path is created recursively if it doesn't exist. The agent reads `SKILL.md` and uses the `todo` CLI to manage your tasks for you.
+
+## Upgrading
+
+```bash
+pipx reinstall todo-bytes                   # pulls latest from git
+```
+
+If reinstall fails, force install over the top:
+
+```bash
+pipx install --force 'todo-bytes[ui] @ git+https://github.com/rishitamrakar/todo-bytes.git'
+```
+
+Upgrades only touch the code. Your config and tasks are never touched.
 
 ## Where things live
 
@@ -86,8 +106,6 @@ The agent reads `SKILL.md` and uses the `todo` CLI to manage your tasks for you.
 | Code (the `todo` command) | `~/.local/pipx/venvs/todo-bytes/` (managed by pipx) |
 | Global config | `~/.config/todo-bytes/config.yaml` |
 | Your tasks (data) | `<data_dir>/<project-name>.yaml` (you pick `data_dir` at `todo init`) |
-
-Upgrades only touch the code. Your config and tasks are never touched.
 
 ## More docs
 

@@ -200,6 +200,74 @@ def test_mark_done_missing_task_raises(setup_project):
         store.mark_done("work", 99, setup_project)
 
 
+# ---------- move task ----------
+
+def test_move_task_to_other_project(setup_project):
+    store.create_project("personal", config=setup_project)
+    store.add_task("work", "task A", tags=["a"], config=setup_project)
+    moved = store.move_task("work", 1, "personal", config=setup_project)
+    assert moved.project == "personal"
+    assert moved.name == "task A"
+    assert moved.tags == ["a"]
+    assert store.load_tasks("work", setup_project) == []
+    assert len(store.load_tasks("personal", setup_project)) == 1
+
+
+def test_move_task_assigns_new_id_in_target(setup_project):
+    store.create_project("personal", config=setup_project)
+    store.add_task("personal", "existing", config=setup_project)  # id 1 in personal
+    store.add_task("work", "to move", config=setup_project)       # id 1 in work
+    moved = store.move_task("work", 1, "personal", config=setup_project)
+    assert moved.id == 2  # next id in target, not preserved from source
+
+
+def test_move_task_appends_to_bottom_of_target(setup_project):
+    store.create_project("personal", config=setup_project)
+    store.add_task("personal", "first", config=setup_project)   # priority 1
+    store.add_task("personal", "second", config=setup_project)  # priority 2
+    store.add_task("work", "to move", config=setup_project)
+    moved = store.move_task("work", 1, "personal", config=setup_project)
+    assert moved.priority == 3
+
+
+def test_move_task_preserves_status_due_done_at(setup_project):
+    from todo_bytes.models import STATUS_DONE
+    store.create_project("personal", config=setup_project)
+    store.add_task("work", "done one", config=setup_project)
+    store.mark_done("work", 1, setup_project)
+    moved = store.move_task("work", 1, "personal", config=setup_project)
+    assert moved.status == STATUS_DONE
+    assert moved.done_at is not None
+
+
+def test_move_task_allows_duplicate_names(setup_project):
+    store.create_project("personal", config=setup_project)
+    store.add_task("personal", "buy milk", config=setup_project)
+    store.add_task("work", "buy milk", config=setup_project)
+    moved = store.move_task("work", 1, "personal", config=setup_project)
+    names = [t.name for t in store.load_tasks("personal", setup_project)]
+    assert names == ["buy milk", "buy milk"]
+    assert moved.name == "buy milk"
+
+
+def test_move_task_to_same_project_raises(setup_project):
+    store.add_task("work", "task", config=setup_project)
+    with pytest.raises(ValueError):
+        store.move_task("work", 1, "work", config=setup_project)
+
+
+def test_move_task_to_missing_project_raises(setup_project):
+    store.add_task("work", "task", config=setup_project)
+    with pytest.raises(store.ProjectNotFoundError):
+        store.move_task("work", 1, "nonexistent", config=setup_project)
+
+
+def test_move_task_missing_source_task_raises(setup_project):
+    store.create_project("personal", config=setup_project)
+    with pytest.raises(store.TaskNotFoundError):
+        store.move_task("work", 99, "personal", config=setup_project)
+
+
 # ---------- project management ----------
 
 def test_all_projects_empty(fake_home: Path):

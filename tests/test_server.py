@@ -426,3 +426,43 @@ def test_all_projects_sentinel_is_not_a_real_project(client: TestClient):
     assert client.delete("/api/tasks/__all__/1").status_code == 404
     assert client.post("/api/tasks/__all__/1/done").status_code == 404
     assert client.post("/api/tasks/__all__/1/reopen").status_code == 404
+
+
+# ---------- POST /api/tasks/{project}/{id}/move ----------
+
+def test_move_task_endpoint_returns_new_task(client: TestClient):
+    client.post("/api/projects", json={"name": "personal"})
+    client.post("/api/tasks", json={"project": "work", "name": "to move"})
+    response = client.post("/api/tasks/work/1/move", json={"to_project": "personal"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["project"] == "personal"
+    assert body["name"] == "to move"
+
+
+def test_move_task_endpoint_removes_from_source(client: TestClient):
+    client.post("/api/projects", json={"name": "personal"})
+    client.post("/api/tasks", json={"project": "work", "name": "x"})
+    client.post("/api/tasks/work/1/move", json={"to_project": "personal"})
+    work_tasks = client.get("/api/tasks", params={"project": "work"}).json()["tasks"]
+    personal_tasks = client.get("/api/tasks", params={"project": "personal"}).json()["tasks"]
+    assert work_tasks == []
+    assert len(personal_tasks) == 1
+
+
+def test_move_task_endpoint_to_missing_project(client: TestClient):
+    client.post("/api/tasks", json={"project": "work", "name": "x"})
+    response = client.post("/api/tasks/work/1/move", json={"to_project": "nope"})
+    assert response.status_code == 404
+
+
+def test_move_task_endpoint_to_same_project_rejected(client: TestClient):
+    client.post("/api/tasks", json={"project": "work", "name": "x"})
+    response = client.post("/api/tasks/work/1/move", json={"to_project": "work"})
+    assert response.status_code == 400
+
+
+def test_move_task_endpoint_missing_task(client: TestClient):
+    client.post("/api/projects", json={"name": "personal"})
+    response = client.post("/api/tasks/work/99/move", json={"to_project": "personal"})
+    assert response.status_code == 404

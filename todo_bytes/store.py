@@ -272,6 +272,48 @@ def reopen_task(project_name: str, task_id: int, config: Config | None = None) -
     return task
 
 
+def move_task(
+    from_project: str,
+    task_id: int,
+    to_project: str,
+    config: Config | None = None,
+) -> Task:
+    """Move a task from one project to another.
+
+    The task gets a new ID and priority in the target project (appended at
+    the bottom). All other fields (name, due, tags, status, done_at,
+    created, description, notes) are preserved. Duplicate names across
+    projects are allowed by design.
+
+    Returns the moved task with its new ID + project.
+    """
+    if from_project == to_project:
+        raise ValueError("Source and target projects must differ")
+    if not project_exists(to_project, config):
+        raise ProjectNotFoundError(f"Project '{to_project}' does not exist")
+
+    source_tasks = load_tasks(from_project, config)
+    task = find_task(source_tasks, task_id)
+    moved = _rehome_task(task, to_project, config)
+    _remove_and_save(source_tasks, task_id, from_project, config)
+    return moved
+
+
+def _rehome_task(task: Task, to_project: str, config: Config | None) -> Task:
+    target_tasks = load_tasks(to_project, config)
+    task.id = next_task_id(target_tasks)
+    task.priority = next_priority(target_tasks)
+    task.project = to_project
+    target_tasks.append(task)
+    save_tasks(to_project, target_tasks, config)
+    return task
+
+
+def _remove_and_save(tasks: list[Task], task_id: int, project: str, config: Config | None) -> None:
+    remaining = [t for t in tasks if t.id != task_id]
+    save_tasks(project, remaining, config)
+
+
 # ---------- internals ----------
 
 ALLOWED_TASK_FIELDS = {"name", "due", "tags", "project", "priority", "status", "done_at", "description", "notes"}
