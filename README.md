@@ -4,7 +4,7 @@
 
 # todo-bytes
 
-A minimal todo app. Tasks live in plain YAML files on your disk. Drive everything from a `todo` CLI or a small browser UI.
+A minimal todo app. Tasks live in plain YAML files on your disk. Drive everything from a small browser UI or a `todo` CLI.
 
 > **Status:** v1.1.0 — feature-complete for v1.
 
@@ -27,9 +27,35 @@ pipx install 'todo-bytes[ui] @ git+https://github.com/rishitamrakar/todo-bytes.g
 pipx install git+https://github.com/rishitamrakar/todo-bytes.git
 ```
 
-Then run `todo init` for one-time setup (asks where tasks live + default project name).
+## First-time setup
 
-## Quick start
+```bash
+todo init                                   # asks where tasks live + default project name
+```
+
+That's it. After this you can use the web UI or the CLI — they share the same data.
+
+## Web UI
+
+```bash
+todo ui                                     # opens http://127.0.0.1:8765 in your browser
+```
+
+<p align="center">
+  <img src="docs/screenshots/ui.png" alt="todo-bytes web UI" width="900" />
+</p>
+
+What it gives you:
+- Sidebar with all projects (status dot + counts + default marker) and an `All Projects` cross-project view
+- Top bar with **due-date chips** (Today / Tomorrow / Week / Next Week / Overdue / No due / Custom range) and a **status filter**
+- Click `+ Add task` to open a side panel with all fields editable
+- Click any task to edit in the same side panel — change project from the dropdown to move tasks between projects
+- Drag rows to reorder priority — saved instantly to YAML
+- Light / dark theme toggle
+
+## CLI
+
+For scripts, cron, agents, or when you just want to type:
 
 ```bash
 todo add "write blog post" --due tomorrow --tag blog
@@ -65,15 +91,7 @@ Other view flags: `--tomorrow`, `--next-week`, `--no-due`, `--done`, `--all`.
 
 Dates accept `today`, `tomorrow`, weekday names (`mon`, `friday`...), or ISO `YYYY-MM-DD`.
 
-### Web UI
-
-```bash
-todo ui                                     # http://127.0.0.1:8765
-```
-
-Sidebar with all projects, due-date chips and status filter at the top, drag rows to reorder priority, light/dark theme — full add/edit/done from the browser.
-
-### For AI agents (Pi, Claude Code)
+## For AI agents (Pi, Claude Code)
 
 todo-bytes ships with an agent skill. Install it where your agent looks for skills:
 

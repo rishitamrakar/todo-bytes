@@ -289,16 +289,16 @@ def test_filter_by_tag_empty_returns_all():
 
 def test_filter_by_project():
     tasks = [
-        make_task(1, project="rb"),
-        make_task(2, project="finn"),
+        make_task(1, project="personal"),
+        make_task(2, project="home"),
         make_task(3, project=None),
     ]
-    result = views.filter_by_project(tasks, "rb")
+    result = views.filter_by_project(tasks, "personal")
     assert [t.id for t in result] == [1]
 
 
 def test_filter_by_project_empty_returns_all():
-    tasks = [make_task(1, project="rb"), make_task(2)]
+    tasks = [make_task(1, project="personal"), make_task(2)]
     assert len(views.filter_by_project(tasks, "")) == 2
 
 
