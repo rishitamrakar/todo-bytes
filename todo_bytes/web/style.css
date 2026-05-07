@@ -1,4 +1,6 @@
-/* todo-bytes UI — minimal, light, clean. */
+/* todo-bytes UI — themed via CSS variables. Light is the default; dark
+   activates when html has data-theme="dark". The boot script in app.js
+   sets that attribute from localStorage or prefers-color-scheme. */
 
 :root {
   --bg: #fafafa;
@@ -16,6 +18,46 @@
   --tag-fg: #3730a3;
   --project-bg: #fce7f3;
   --project-fg: #9d174d;
+}
+
+[data-theme="dark"] {
+  --bg: #0e0e10;
+  --card: #1a1a1d;
+  --border: #2a2a2e;
+  --text: #ededed;
+  --text-dim: #9a9a9e;
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --danger: #ef4444;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --row-hover: #232327;
+  --tag-bg: #1e1b4b;
+  --tag-fg: #a5b4fc;
+  --project-bg: #4a044e;
+  --project-fg: #f9a8d4;
+}
+
+.theme-toggle {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 14px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.theme-toggle:hover {
+  color: var(--text);
+  background: var(--row-hover);
 }
 
 * { box-sizing: border-box; }
@@ -45,13 +87,27 @@ body {
   gap: 12px;
 }
 
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
 .sidebar-header h1 {
   font-size: 18px;
-  margin: 0 0 8px 0;
+  margin: 0;
   font-weight: 600;
 }
 
-.lists {
+.app-logo {
+  width: 22px;
+  height: 22px;
+  color: var(--text);  /* drives the brackets via currentColor */
+  flex-shrink: 0;
+}
+
+.projects-nav {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -59,7 +115,7 @@ body {
   overflow-y: auto;
 }
 
-.list-item {
+.project-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -73,11 +129,11 @@ body {
   color: var(--text);
 }
 
-.list-item:hover { background: var(--row-hover); }
-.list-item.active { background: var(--accent); color: white; }
-.list-item .count { font-size: 12px; opacity: 0.7; }
-.list-item.active .count { opacity: 0.9; }
-.list-item .default-mark { margin-left: 4px; opacity: 0.6; font-size: 11px; }
+.project-item:hover { background: var(--row-hover); }
+.project-item.active { background: var(--accent); color: white; }
+.project-item .count { font-size: 12px; opacity: 0.7; }
+.project-item.active .count { opacity: 0.9; }
+.project-item .default-mark { margin-left: 4px; opacity: 0.6; font-size: 11px; }
 
 /* Main */
 .main {
@@ -167,14 +223,61 @@ body {
   font-weight: 600;
 }
 
-/* View tabs */
+/* Top bar: Due dropdown + Status dropdown, side-by-side on the left.
+   Both panels anchor below the nav as floating popovers. */
 .views {
   display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
   margin-bottom: 12px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 8px;
+  position: relative;
+}
+
+.views .filter-chip {
+  flex: 0 0 auto;
+  font-size: 13px;
+  padding: 6px 10px;
+}
+
+.views .filter-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  min-width: 220px;
+  margin-top: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+#task-status-filter { left: auto; }  /* anchors under the Status chip via JS-set offset — fall back to top:100% above */
+
+/* Due dropdown options — menu-style click items */
+.due-option {
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+.due-option:hover { background: var(--row-hover); }
+.due-option.active {
+  background: var(--accent);
+  color: white;
+}
+
+.due-custom {
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .view-tab {
@@ -421,22 +524,30 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   padding: 10px 12px;
-  margin-top: 4px;
+  margin-bottom: 8px;
   background: transparent;
   border: 1px dashed var(--border);
   border-radius: 6px;
-  transition: border-color 0.1s, background 0.1s;
+  color: var(--text-dim);
+  font-size: 14px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.1s, background 0.1s, color 0.1s;
 }
 
-.quick-add:focus-within {
+.quick-add:hover,
+.quick-add:focus {
   border-color: var(--accent);
   border-style: solid;
   background: var(--card);
+  color: var(--text);
+  outline: none;
 }
 
-.quick-add-icon {
-  color: var(--text-dim);
+.quick-add-plus {
   font-size: 16px;
   font-weight: 500;
   user-select: none;
@@ -444,19 +555,8 @@ body {
   text-align: center;
 }
 
-.quick-add input {
+.quick-add-label {
   flex: 1;
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: 14px;
-  font-family: inherit;
-  color: var(--text);
-  padding: 0;
-}
-
-.quick-add input::placeholder {
-  color: var(--text-dim);
 }
 
 .quick-add[hidden] {
@@ -570,10 +670,10 @@ body {
 }
 .btn-mini { padding: 3px 8px; font-size: 11px; }
 
-.list-item {
+.project-item {
   position: relative;
 }
-.list-item .edit-btn {
+.project-item .edit-btn {
   background: transparent;
   border: none;
   color: inherit;
@@ -583,10 +683,10 @@ body {
   opacity: 0;
   transition: opacity 0.1s;
 }
-.list-item:hover .edit-btn { opacity: 0.7; }
-.list-item .edit-btn:hover { opacity: 1; }
+.project-item:hover .edit-btn { opacity: 0.7; }
+.project-item .edit-btn:hover { opacity: 1; }
 
-.list-item .project-status-dot {
+.project-item .project-status-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -594,11 +694,11 @@ body {
   margin-right: 6px;
   background: var(--text-dim);
 }
-.list-item.status-todo .project-status-dot { background: var(--text-dim); }
-.list-item.status-in-progress .project-status-dot { background: var(--accent); }
-.list-item.status-done .project-status-dot { background: var(--success); }
-.list-item.status-hold .project-status-dot { background: var(--warning); }
-.list-item.status-cancelled .project-status-dot { background: var(--danger); }
+.project-item.status-todo .project-status-dot { background: var(--text-dim); }
+.project-item.status-in-progress .project-status-dot { background: var(--accent); }
+.project-item.status-done .project-status-dot { background: var(--success); }
+.project-item.status-hold .project-status-dot { background: var(--warning); }
+.project-item.status-cancelled .project-status-dot { background: var(--danger); }
 
 /* 'All visible' pseudo-project at the top of the sidebar list */
 .all-projects-item {
@@ -753,3 +853,57 @@ body {
 /* SortableJS classes */
 .sortable-ghost { opacity: 0.4; }
 .sortable-chosen { background: var(--row-hover); }
+
+/* Side panel variant of .modal — slides in from the right, keeps task list visible.
+   Used for the task edit panel; project edit stays as a centered modal. */
+.modal.side-panel {
+  background: transparent;       /* no dim overlay */
+  display: block;                /* override .modal flex centering */
+  pointer-events: none;          /* let clicks pass through to the page */
+  inset: auto;                   /* reset from .modal's inset:0 */
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(440px, 90vw);
+  z-index: 100;
+}
+
+/* Higher specificity than .modal.side-panel above so the `hidden` attr wins. */
+.modal.side-panel[hidden] {
+  display: none;
+}
+
+.modal.side-panel .modal-card {
+  pointer-events: auto;          /* re-enable inside the panel */
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  border-radius: 0;
+  box-shadow: -10px 0 40px rgba(0, 0, 0, 0.15);
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  animation: slide-in-right 0.18s ease-out;
+}
+
+.modal.side-panel.closing .modal-card {
+  animation: slide-out-right 0.18s ease-in forwards;
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+@keyframes slide-out-right {
+  from { transform: translateX(0); }
+  to   { transform: translateX(100%); }
+}
+
+.modal.side-panel .modal-card select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  background: var(--card);
+  color: var(--text);
+}

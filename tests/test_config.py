@@ -13,7 +13,7 @@ from todo_bytes import config as cfg
 def test_defaults_returns_expected_values(fake_home: Path):
     defaults = cfg.Config.defaults()
     assert defaults.data_dir == str(fake_home / "my-todos")
-    assert defaults.default_list == "work"
+    assert defaults.default_project == "work"
     assert defaults.ui_port == 8765
 
 
@@ -29,7 +29,7 @@ def test_load_config_raises_when_missing(fake_home: Path):
 def test_save_then_load_roundtrip(fake_home: Path):
     original = cfg.Config(
         data_dir=str(fake_home / "tasks"),
-        default_list="personal",
+        default_project="personal",
         ui_port=9000,
     )
     cfg.save_config(original)
@@ -46,18 +46,18 @@ def test_save_creates_config_dir(fake_home: Path):
 
 
 def test_saved_yaml_is_human_readable(fake_home: Path):
-    cfg.save_config(cfg.Config(data_dir="/x", default_list="work", ui_port=8765))
+    cfg.save_config(cfg.Config(data_dir="/x", default_project="work", ui_port=8765))
     raw = cfg.get_config_file().read_text()
     parsed = yaml.safe_load(raw)
-    assert parsed == {"data_dir": "/x", "default_list": "work", "ui_port": 8765}
+    assert parsed == {"data_dir": "/x", "default_project": "work", "ui_port": 8765}
 
 
 def test_update_config_changes_single_field(fake_home: Path):
     cfg.save_config(cfg.Config.defaults())
-    updated = cfg.update_config("default_list", "personal")
-    assert updated.default_list == "personal"
+    updated = cfg.update_config("default_project", "personal")
+    assert updated.default_project == "personal"
     # Persisted on disk too
-    assert cfg.load_config().default_list == "personal"
+    assert cfg.load_config().default_project == "personal"
 
 
 def test_update_config_coerces_ui_port_to_int(fake_home: Path):
@@ -86,7 +86,7 @@ def test_load_config_uses_defaults_for_missing_fields(fake_home: Path):
 
     loaded = cfg.load_config()
     assert loaded.data_dir == "/custom/path"
-    assert loaded.default_list == "work"  # default
+    assert loaded.default_project == "work"  # default
     assert loaded.ui_port == 8765  # default
 
 

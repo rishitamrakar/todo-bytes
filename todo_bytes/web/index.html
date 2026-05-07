@@ -4,13 +4,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>todo-bytes</title>
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
   <div class="app">
     <aside class="sidebar">
       <div class="sidebar-header">
+        <svg class="app-logo" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M 20 12 L 10 12 L 10 52 L 20 52" />
+          <path d="M 44 12 L 54 12 L 54 52 L 44 52" />
+          <path d="M 22 33 L 29 41 L 44 24" stroke="var(--accent)" />
+        </svg>
         <h1>todo-bytes</h1>
+        <button id="theme-toggle" class="theme-toggle" type="button" title="Toggle theme" aria-label="Toggle theme">☾</button>
       </div>
 
       <div class="sidebar-section-label">
@@ -35,9 +42,7 @@
         <label><input type="checkbox" data-status="cancelled"> Cancelled</label>
         <div class="filter-actions">
           <button type="button" class="btn-secondary btn-mini" data-action="select-all" data-target="status">Select all</button>
-          <button type="button" class="btn-secondary btn-mini" data-action="deselect-all" data-target="status">Deselect all</button>
           <span style="flex:1"></span>
-          <button type="button" class="btn-secondary btn-mini" data-action="cancel" data-target="status">Cancel</button>
           <button type="button" class="btn-primary btn-mini" data-action="apply" data-target="status">Apply</button>
         </div>
       </div>
@@ -47,9 +52,7 @@
         <div id="tag-filter-list"></div>
         <div class="filter-actions">
           <button type="button" class="btn-secondary btn-mini" data-action="select-all" data-target="tag">Select all</button>
-          <button type="button" class="btn-secondary btn-mini" data-action="deselect-all" data-target="tag">Deselect all</button>
           <span style="flex:1"></span>
-          <button type="button" class="btn-secondary btn-mini" data-action="cancel" data-target="tag">Cancel</button>
           <button type="button" class="btn-primary btn-mini" data-action="apply" data-target="tag">Apply</button>
         </div>
       </div>
@@ -62,7 +65,7 @@
         <span class="count" id="all-count">0/0</span>
       </button>
 
-      <nav class="lists" id="lists"></nav>
+      <nav class="projects-nav" id="projects-list"></nav>
 
       <form class="sidebar-quick-add" id="new-project-form" autocomplete="off">
         <span class="quick-add-icon">+</span>
@@ -77,19 +80,52 @@
 
     <main class="main">
       <header class="main-header">
-        <h2 id="list-title">Loading…</h2>
+        <h2 id="project-title">Loading…</h2>
       </header>
 
       <nav class="views" id="views">
-        <button class="view-tab" data-view="open">Open</button>
-        <button class="view-tab" data-view="today">Today</button>
-        <button class="view-tab" data-view="overdue">Overdue</button>
-        <button class="view-tab" data-view="tomorrow">Tomorrow</button>
-        <button class="view-tab" data-view="week">This week</button>
-        <button class="view-tab" data-view="next-week">Next week</button>
-        <button class="view-tab" data-view="no-due">No due</button>
-        <button class="view-tab" data-view="done">Done (7d)</button>
-        <button class="view-tab" data-view="all">All</button>
+        <button class="filter-chip" id="due-filter-btn" title="Filter tasks by due date">
+          <span id="due-chip-label">Due</span> <span class="caret">▾</span>
+        </button>
+
+        <button class="filter-chip" id="task-status-btn" title="Filter tasks by status">
+          <span id="task-status-chip-label">Status</span> <span class="caret">▾</span>
+        </button>
+
+        <div class="filter-panel" id="due-filter-panel" hidden>
+          <button type="button" class="due-option" data-due="">Any</button>
+          <button type="button" class="due-option" data-due="today">Today</button>
+          <button type="button" class="due-option" data-due="tomorrow">Tomorrow</button>
+          <button type="button" class="due-option" data-due="week">This week</button>
+          <button type="button" class="due-option" data-due="next-week">Next week</button>
+          <button type="button" class="due-option" data-due="overdue">Overdue</button>
+          <button type="button" class="due-option" data-due="no-due">No due</button>
+          <div class="due-custom">
+            <div class="filter-panel-header">Custom range</div>
+            <div class="date-time-inputs">
+              <input type="date" id="custom-range-from" />
+              <input type="date" id="custom-range-to" />
+            </div>
+            <div class="filter-actions">
+              <span style="flex:1"></span>
+              <button type="button" class="btn-primary btn-mini" id="custom-range-apply">Apply range</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="filter-panel" id="task-status-filter" hidden>
+          <div class="filter-panel-header">Show tasks with status:</div>
+          <label><input type="checkbox" data-task-status="todo"> To Do</label>
+          <label><input type="checkbox" data-task-status="in-progress"> In Progress</label>
+          <label><input type="checkbox" data-task-status="done"> Done</label>
+          <label><input type="checkbox" data-task-status="hold"> Hold</label>
+          <label><input type="checkbox" data-task-status="cancelled"> Cancelled</label>
+          <div class="filter-actions">
+            <button type="button" class="btn-secondary btn-mini" data-action="select-all" data-target="task-status">Select all</button>
+            <span style="flex:1"></span>
+            <button type="button" class="btn-primary btn-mini" data-action="apply" data-target="task-status">Apply</button>
+          </div>
+        </div>
       </nav>
 
       <div class="main-body">
@@ -98,17 +134,12 @@
             Drag rows to reorder priority. Top of list = highest priority.
           </div>
 
-          <ul class="tasks" id="tasks"></ul>
+          <button type="button" class="quick-add" id="quick-add-trigger">
+            <span class="quick-add-plus">+</span>
+            <span class="quick-add-label">Add task</span>
+          </button>
 
-          <form class="quick-add" id="quick-add" autocomplete="off">
-            <span class="quick-add-icon">+</span>
-            <input
-              type="text"
-              id="quick-add-input"
-              placeholder="Type to add a task, then press Enter…"
-              autocomplete="off"
-            />
-          </form>
+          <ul class="tasks" id="tasks"></ul>
 
           <div class="empty-state" id="empty-state" hidden>
             <p>Nothing here yet.</p>
@@ -136,8 +167,8 @@
     </main>
   </div>
 
-  <!-- Edit task modal -->
-  <div class="modal" id="task-modal" hidden>
+  <!-- Edit task side panel -->
+  <div class="modal side-panel" id="task-modal" hidden>
     <div class="modal-card">
       <h3 id="modal-title">Edit task</h3>
       <form id="task-form">
@@ -151,6 +182,10 @@
             <input type="date" name="due_date" />
             <input type="time" name="due_time" title="Optional. Defaults to end of day." />
           </div>
+        </label>
+        <label>
+          Project
+          <select name="project"></select>
         </label>
         <label>
           Tags (comma-separated)
@@ -175,7 +210,6 @@
           <textarea name="notes" rows="6" placeholder="- bullet point&#10;- another bullet&#10;- links, thoughts, anything"></textarea>
         </label>
         <div class="meta-info">
-          <span><span class="meta-label">Project:</span> <span id="meta-project">—</span></span>
           <span><span class="meta-label">Created:</span> <span id="meta-created">—</span></span>
         </div>
         <div class="modal-actions">

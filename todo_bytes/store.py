@@ -75,12 +75,6 @@ class UnsupportedSchemaVersionError(Exception):
     """Raised when a project file declares a schema_version this build can't read."""
 
 
-# Legacy aliases — keep until all callers are migrated.
-ListNotFoundError = ProjectNotFoundError
-ListAlreadyExistsError = ProjectAlreadyExistsError
-CannotDeleteDefaultListError = CannotDeleteDefaultProjectError
-
-
 # ---------- paths ----------
 
 def project_file_path(project_name: str, config: Config | None = None) -> Path:
@@ -128,7 +122,7 @@ def create_project(
 def delete_project(project_name: str, config: Config | None = None) -> None:
     """Delete a project file. Refuses if it's the configured default project."""
     cfg = config or load_config()
-    if project_name == cfg.default_list:
+    if project_name == cfg.default_project:
         raise CannotDeleteDefaultProjectError(
             f"Cannot delete '{project_name}' — it is the default project. "
             f"Switch default first with `todo use <other-project>`."
@@ -211,97 +205,114 @@ def find_task(tasks: list[Task], task_id: int) -> Task:
 # ---------- task CRUD ----------
 
 def add_task(
-    list_name: Optional[str] = None,
+    project_name: str,
     name: str = "",
     due=None,
     tags: Optional[list[str]] = None,
     description: Optional[str] = None,
     notes: Optional[str] = None,
+    status: Optional[str] = None,
     config: Config | None = None,
-    *,
-    project_name: Optional[str] = None,
 ) -> Task:
     """Append a new task to a project. Returns the created Task.
 
     `task.project` is auto-set to the parent project's name — it is no
     longer a free-form user input.
     """
-    target = project_name or list_name
-    if not target:
+    if not project_name:
         raise ValueError("Project name is required")
-    tasks = load_tasks(target, config)
+    tasks = load_tasks(project_name, config)
     task = Task(
         id=next_task_id(tasks),
         name=name,
         priority=next_priority(tasks),
-        status=STATUS_TODO,
+        status=status or STATUS_TODO,
         due=due,
         tags=tags or [],
-        project=target,  # auto-set
+        project=project_name,  # auto-set
         description=description,
         notes=notes,
         created=datetime.now(),
         done_at=None,
     )
     tasks.append(task)
-    save_tasks(target, tasks, config)
+    save_tasks(project_name, tasks, config)
     return task
 
 
-def update_task(list_name: str, task_id: int, config: Config | None = None, **fields) -> Task:
-    tasks = load_tasks(list_name, config)
+def update_task(project_name: str, task_id: int, config: Config | None = None, **fields) -> Task:
+    tasks = load_tasks(project_name, config)
     task = find_task(tasks, task_id)
     _apply_field_updates(task, fields)
-    save_tasks(list_name, tasks, config)
+    save_tasks(project_name, tasks, config)
     return task
 
 
-def delete_task(list_name: str, task_id: int, config: Config | None = None) -> None:
-    tasks = load_tasks(list_name, config)
+def delete_task(project_name: str, task_id: int, config: Config | None = None) -> None:
+    tasks = load_tasks(project_name, config)
     find_task(tasks, task_id)
     remaining = [t for t in tasks if t.id != task_id]
-    save_tasks(list_name, remaining, config)
+    save_tasks(project_name, remaining, config)
 
 
-def mark_done(list_name: str, task_id: int, config: Config | None = None) -> Task:
-    tasks = load_tasks(list_name, config)
+def mark_done(project_name: str, task_id: int, config: Config | None = None) -> Task:
+    tasks = load_tasks(project_name, config)
     task = find_task(tasks, task_id)
     task.status = STATUS_DONE
     task.done_at = datetime.now()
-    save_tasks(list_name, tasks, config)
+    save_tasks(project_name, tasks, config)
     return task
 
 
-def reopen_task(list_name: str, task_id: int, config: Config | None = None) -> Task:
-    tasks = load_tasks(list_name, config)
+def reopen_task(project_name: str, task_id: int, config: Config | None = None) -> Task:
+    tasks = load_tasks(project_name, config)
     task = find_task(tasks, task_id)
     task.status = STATUS_TODO
     task.done_at = None
-    save_tasks(list_name, tasks, config)
+    save_tasks(project_name, tasks, config)
     return task
 
 
-# ---------- legacy aliases (so existing tests/code still work during transition) ----------
+def move_task(
+    from_project: str,
+    task_id: int,
+    to_project: str,
+    config: Config | None = None,
+) -> Task:
+    """Move a task from one project to another.
 
-list_file_path = project_file_path
-all_lists = all_projects
-list_exists = project_exists
+    The task gets a new ID and priority in the target project (appended at
+    the bottom). All other fields (name, due, tags, status, done_at,
+    created, description, notes) are preserved. Duplicate names across
+    projects are allowed by design.
+
+    Returns the moved task with its new ID + project.
+    """
+    if from_project == to_project:
+        raise ValueError("Source and target projects must differ")
+    if not project_exists(to_project, config):
+        raise ProjectNotFoundError(f"Project '{to_project}' does not exist")
+
+    source_tasks = load_tasks(from_project, config)
+    task = find_task(source_tasks, task_id)
+    moved = _rehome_task(task, to_project, config)
+    _remove_and_save(source_tasks, task_id, from_project, config)
+    return moved
 
 
-def create_list(list_name: str, config: Config | None = None) -> Path:
-    """Legacy wrapper around create_project. Returns the file path for compat."""
-    create_project(list_name, config=config)
-    return project_file_path(list_name, config)
+def _rehome_task(task: Task, to_project: str, config: Config | None) -> Task:
+    target_tasks = load_tasks(to_project, config)
+    task.id = next_task_id(target_tasks)
+    task.priority = next_priority(target_tasks)
+    task.project = to_project
+    target_tasks.append(task)
+    save_tasks(to_project, target_tasks, config)
+    return task
 
 
-def delete_list(list_name: str, config: Config | None = None) -> None:
-    delete_project(list_name, config)
-
-
-def list_summary(list_name: str, config: Config | None = None) -> dict:
-    """Legacy: return only the simple counts shape (open/done/total)."""
-    summary = project_summary(list_name, config)
-    return {k: summary[k] for k in ("name", "open", "done", "total")}
+def _remove_and_save(tasks: list[Task], task_id: int, project: str, config: Config | None) -> None:
+    remaining = [t for t in tasks if t.id != task_id]
+    save_tasks(project, remaining, config)
 
 
 # ---------- internals ----------

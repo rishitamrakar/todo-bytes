@@ -64,15 +64,16 @@ def test_next_week_bounds():
 
 # ---------- filter_today ----------
 
-def test_filter_today_picks_only_today_open():
+def test_filter_today_is_pure_date_filter():
+    """Date filters are orthogonal to status — a done task due today still matches."""
     tasks = [
         make_task(1, due=WED),
         make_task(2, due=WED + timedelta(days=1)),
-        make_task(3, due=WED, status=STATUS_DONE),  # done — excluded
+        make_task(3, due=WED, status=STATUS_DONE),  # done but due today — still included
         make_task(4, due=None),
     ]
     result = views.filter_today(tasks, today=WED)
-    assert [t.id for t in result] == [1]
+    assert sorted(t.id for t in result) == [1, 3]
 
 
 # ---------- filter_overdue ----------
@@ -88,13 +89,15 @@ def test_filter_overdue_excludes_today():
     assert sorted(t.id for t in result) == [1, 2]
 
 
-def test_filter_overdue_excludes_done_tasks():
+def test_filter_overdue_includes_all_statuses():
+    """Pure date filter: a done task with a past due date is still 'overdue' by date.
+    Caller composes filter_by_statuses() to narrow if needed."""
     tasks = [
         make_task(1, due=WED - timedelta(days=2), status=STATUS_DONE),
         make_task(2, due=WED - timedelta(days=2)),
     ]
     result = views.filter_overdue(tasks, today=WED)
-    assert [t.id for t in result] == [2]
+    assert sorted(t.id for t in result) == [1, 2]
 
 
 # ---------- filter_tomorrow ----------
@@ -143,14 +146,82 @@ def test_filter_next_week():
 
 # ---------- filter_no_due ----------
 
-def test_filter_no_due_only_open():
+def test_filter_no_due_returns_all_statuses():
+    """Pure date filter — no-due-date matches regardless of status."""
     tasks = [
         make_task(1, due=None),
         make_task(2, due=WED),
         make_task(3, due=None, status=STATUS_DONE),
     ]
     result = views.filter_no_due(tasks)
+    assert sorted(t.id for t in result) == [1, 3]
+
+
+# ---------- filter_in_date_range (custom range) ----------
+
+def test_filter_in_date_range_inclusive_on_both_ends():
+    start = date(2026, 5, 4)
+    end = date(2026, 5, 6)
+    tasks = [
+        make_task(1, due=date(2026, 5, 3)),  # day before start — out
+        make_task(2, due=start),               # start — in
+        make_task(3, due=date(2026, 5, 5)),    # mid — in
+        make_task(4, due=end),                 # end — in
+        make_task(5, due=date(2026, 5, 7)),    # day after end — out
+        make_task(6, due=None),                # no due — out
+    ]
+    result = views.filter_in_date_range(tasks, start, end)
+    assert sorted(t.id for t in result) == [2, 3, 4]
+
+
+def test_filter_in_date_range_single_day():
+    """start == end means the single date is the whole range."""
+    target = date(2026, 5, 6)
+    tasks = [
+        make_task(1, due=target),
+        make_task(2, due=date(2026, 5, 5)),
+        make_task(3, due=date(2026, 5, 7)),
+    ]
+    result = views.filter_in_date_range(tasks, target, target)
     assert [t.id for t in result] == [1]
+
+
+def test_filter_in_date_range_handles_swapped_bounds():
+    """If start > end, treat them as a range anyway. Forgiving on caller error."""
+    tasks = [make_task(1, due=date(2026, 5, 5))]
+    result = views.filter_in_date_range(tasks, date(2026, 5, 7), date(2026, 5, 4))
+    assert [t.id for t in result] == [1]
+
+
+def test_filter_in_date_range_includes_datetime_within_end_day():
+    """A task due 2026-05-12T18:30 is included when end=2026-05-12 (date compare)."""
+    end = date(2026, 5, 12)
+    tasks = [make_task(1, due=datetime(2026, 5, 12, 18, 30))]
+    result = views.filter_in_date_range(tasks, date(2026, 5, 10), end)
+    assert [t.id for t in result] == [1]
+
+
+# ---------- filter_by_statuses ----------
+
+def test_filter_by_statuses_keeps_only_matching():
+    tasks = [
+        make_task(1, status="todo"),
+        make_task(2, status="in-progress"),
+        make_task(3, status=STATUS_DONE),
+        make_task(4, status="hold"),
+    ]
+    result = views.filter_by_statuses(tasks, ["todo", "hold"])
+    assert sorted(t.id for t in result) == [1, 4]
+
+
+def test_filter_by_statuses_none_or_empty_is_passthrough():
+    """None / empty status set means 'no filter' — all tasks pass through."""
+    tasks = [
+        make_task(1, status="todo"),
+        make_task(2, status=STATUS_DONE),
+    ]
+    assert sorted(t.id for t in views.filter_by_statuses(tasks, None)) == [1, 2]
+    assert sorted(t.id for t in views.filter_by_statuses(tasks, [])) == [1, 2]
 
 
 # ---------- filter_done_recent ----------

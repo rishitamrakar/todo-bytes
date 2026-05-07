@@ -10,12 +10,20 @@
 // ---------- state ----------
 
 const state = {
-  lists: [],
-  defaultList: null,
-  activeList: null,
-  activeView: 'open',
+  projects: [],
+  defaultProject: null,
+  activeProject: null,
+  // Top bar filters (orthogonal):
+  //   activeDue: null | 'today' | 'tomorrow' | 'week' | 'next-week' | 'overdue' | 'no-due' | 'custom'
+  //   activeTaskStatuses: Set of statuses to show. Default = all 5 (no filter).
+  //   customRange: { from, to } when activeDue === 'custom'.
+  activeDue: null,
+  activeTaskStatuses: new Set(['todo', 'in-progress', 'done', 'hold', 'cancelled']),
+  customRange: { from: null, to: null },
   tasks: [],
   editingTaskId: null,  // null = creating new task
+  editingTaskProject: null,  // project the task being edited belongs to (needed in All Projects view)
+  taskFormSnapshot: null,  // serialized form state on open; used to detect unsaved changes
   // Sidebar filters — status + tags. Both must pass for a project to show.
   // Default: active statuses; all tags + untagged checked.
   visibleStatuses: new Set(['todo', 'in-progress']),
@@ -27,6 +35,7 @@ const state = {
     statuses: null,
     tags: null,
     showUntagged: null,
+    taskStatuses: null,
   },
 };
 
@@ -37,33 +46,47 @@ const ALL_STATUS_VALUES = ['todo', 'in-progress', 'done', 'hold', 'cancelled'];
 // ---------- api ----------
 
 const api = {
-  async getLists() {
-    return fetchJson('/api/lists');
+  async getProjects() {
+    return fetchJson('/api/projects');
   },
-  async getTasks(listName, view) {
-    const params = new URLSearchParams({ list: listName, view });
+  async getTasks(projectName, filters = {}) {
+    const params = new URLSearchParams({ project: projectName });
+    if (filters.due) params.set('due', filters.due);
+    if (filters.due_from) params.set('due_from', filters.due_from);
+    if (filters.due_to) params.set('due_to', filters.due_to);
+    // Only send statuses when it's a real subset — omit means "pass through"
+    if (filters.statuses && filters.statuses.length > 0
+        && filters.statuses.length < ALL_STATUS_VALUES.length) {
+      filters.statuses.forEach(s => params.append('statuses', s));
+    }
     return fetchJson(`/api/tasks?${params}`);
   },
   async createTask(payload) {
     return fetchJson('/api/tasks', { method: 'POST', body: payload });
   },
-  async updateTask(listName, id, payload) {
-    return fetchJson(`/api/tasks/${listName}/${id}`, { method: 'PATCH', body: payload });
+  async updateTask(projectName, id, payload) {
+    return fetchJson(`/api/tasks/${projectName}/${id}`, { method: 'PATCH', body: payload });
   },
-  async deleteTask(listName, id) {
-    return fetchJson(`/api/tasks/${listName}/${id}`, { method: 'DELETE' });
+  async deleteTask(projectName, id) {
+    return fetchJson(`/api/tasks/${projectName}/${id}`, { method: 'DELETE' });
   },
-  async markDone(listName, id) {
-    return fetchJson(`/api/tasks/${listName}/${id}/done`, { method: 'POST' });
+  async markDone(projectName, id) {
+    return fetchJson(`/api/tasks/${projectName}/${id}/done`, { method: 'POST' });
   },
-  async reopen(listName, id) {
-    return fetchJson(`/api/tasks/${listName}/${id}/reopen`, { method: 'POST' });
+  async reopen(projectName, id) {
+    return fetchJson(`/api/tasks/${projectName}/${id}/reopen`, { method: 'POST' });
   },
-  async reorder(listName, ids) {
-    return fetchJson(`/api/lists/${listName}/reorder`, { method: 'POST', body: { ids } });
+  async moveTask(fromProject, id, toProject) {
+    return fetchJson(`/api/tasks/${fromProject}/${id}/move`, {
+      method: 'POST',
+      body: { to_project: toProject },
+    });
   },
-  async createList(name) {
-    return fetchJson('/api/lists', { method: 'POST', body: { name } });
+  async reorder(projectName, ids) {
+    return fetchJson(`/api/projects/${projectName}/reorder`, { method: 'POST', body: { ids } });
+  },
+  async createProject(name) {
+    return fetchJson('/api/projects', { method: 'POST', body: { name } });
   },
   async getProject(name) {
     return fetchJson(`/api/projects/${encodeURIComponent(name)}`);
@@ -72,7 +95,7 @@ const api = {
     return fetchJson(`/api/projects/${encodeURIComponent(name)}`, { method: 'PATCH', body: payload });
   },
   async deleteProject(name) {
-    return fetchJson(`/api/lists/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    return fetchJson(`/api/projects/${encodeURIComponent(name)}`, { method: 'DELETE' });
   },
 };
 
@@ -90,10 +113,10 @@ async function fetchJson(url, opts = {}) {
 }
 
 
-// ---------- render: lists sidebar ----------
+// ---------- render: projects sidebar ----------
 
 function visibleProjects() {
-  return state.lists.filter(p =>
+  return state.projects.filter(p =>
     state.visibleStatuses.has(p.status || 'todo') && projectPassesTagFilter(p)
   );
 }
@@ -104,25 +127,25 @@ function projectPassesTagFilter(project) {
   return tags.some(t => state.visibleTags.has(t));
 }
 
-function renderLists() {
-  const el = document.getElementById('lists');
+function renderProjectsNav() {
+  const el = document.getElementById("projects-list");
   el.innerHTML = '';
   const projects = visibleProjects();
-  projects.forEach(p => el.appendChild(buildListItem(p)));
+  projects.forEach(p => el.appendChild(buildProjectItem(p)));
   renderAllProjectsButton(projects);
 }
 
 function renderAllProjectsButton(visible) {
   const btn = document.getElementById('all-projects-btn');
-  btn.classList.toggle('active', state.activeList === ALL_PROJECTS);
-  document.getElementById('all-count').textContent = `${visible.length}/${state.lists.length}`;
+  btn.classList.toggle('active', state.activeProject === ALL_PROJECTS);
+  document.getElementById('all-count').textContent = `${visible.length}/${state.projects.length}`;
 }
 
 function renderTagFilter() {
   const el = document.getElementById('tag-filter-list');
   el.innerHTML = '';
   const allTags = collectAllTags();
-  const hasUntagged = state.lists.some(p => !p.tags || p.tags.length === 0);
+  const hasUntagged = state.projects.some(p => !p.tags || p.tags.length === 0);
 
   // Render from pending state if the panel is open, else from actual state.
   // (Tag filter is dynamic so we always re-render rather than just sync.)
@@ -138,7 +161,7 @@ function renderTagFilter() {
 
 function collectAllTags() {
   const set = new Set();
-  state.lists.forEach(p => (p.tags || []).forEach(t => set.add(t)));
+  state.projects.forEach(p => (p.tags || []).forEach(t => set.add(t)));
   return [...set].sort();
 }
 
@@ -176,15 +199,15 @@ function buildUntaggedCheckbox(checked) {
   return lbl;
 }
 
-function buildListItem(project) {
+function buildProjectItem(project) {
   const div = document.createElement('div');
   const status = project.status || 'todo';
-  div.className = 'list-item status-' + status + (project.name === state.activeList ? ' active' : '');
+  div.className = 'project-item status-' + status + (project.name === state.activeProject ? ' active' : '');
   div.innerHTML = `
     <span style="display:flex; align-items:center; flex:1;">
       <span class="project-status-dot"></span>
       ${escape(project.name)}
-      ${project.name === state.defaultList ? '<span class="default-mark">★</span>' : ''}
+      ${project.name === state.defaultProject ? '<span class="default-mark">★</span>' : ''}
     </span>
     <button class="edit-btn" data-action="edit-project" title="Edit project">✎</button>
     <span class="count">${project.open}/${project.total}</span>
@@ -195,23 +218,77 @@ function buildListItem(project) {
       openEditProjectModal(project.name);
       return;
     }
-    switchList(project.name);
+    switchProject(project.name);
   });
   return div;
 }
 
 
-// ---------- render: views tabs ----------
+// ---------- render: top-bar chips ----------
+
+const DUE_LABELS = {
+  today: 'Today',
+  tomorrow: 'Tomorrow',
+  week: 'This week',
+  'next-week': 'Next week',
+  overdue: 'Overdue',
+  'no-due': 'No due',
+};
 
 function renderViewTabs() {
-  document.querySelectorAll('.view-tab').forEach(tab => {
-    tab.classList.toggle('active', tab.dataset.view === state.activeView);
+  renderDueChip();
+  renderTaskStatusChip();
+  renderQuickAddVisibility();
+}
+
+function renderDueChip() {
+  const btn = document.getElementById('due-filter-btn');
+  const label = document.getElementById('due-chip-label');
+  if (state.activeDue === null) {
+    btn.classList.remove('active');
+    label.textContent = 'Due';
+  } else if (state.activeDue === 'custom' && state.customRange.from && state.customRange.to) {
+    btn.classList.add('active');
+    label.textContent = `Due: ${formatCustomRangeLabel(state.customRange.from, state.customRange.to)}`;
+  } else {
+    btn.classList.add('active');
+    label.textContent = `Due: ${DUE_LABELS[state.activeDue] || state.activeDue}`;
+  }
+  // Highlight the matching option in the dropdown
+  document.querySelectorAll('.due-option').forEach(opt => {
+    const matches = (opt.dataset.due || null) === state.activeDue;
+    opt.classList.toggle('active', matches);
   });
-  // Hint text + quick-add only on Open view of a single project (not All).
-  const isOpenView = state.activeView === 'open';
-  const isSingleProject = state.activeList !== ALL_PROJECTS;
-  document.getElementById('reorder-hint').hidden = !(isOpenView && isSingleProject);
-  document.getElementById('quick-add').hidden = !(isOpenView && isSingleProject);
+}
+
+function renderTaskStatusChip() {
+  const btn = document.getElementById('task-status-btn');
+  const label = document.getElementById('task-status-chip-label');
+  const total = ALL_STATUS_VALUES.length;
+  const picked = state.activeTaskStatuses.size;
+  const isFiltered = picked > 0 && picked < total;
+  btn.classList.toggle('active', isFiltered);
+  label.textContent = isFiltered ? `Status (${picked}/${total})` : 'Status';
+}
+
+function renderQuickAddVisibility() {
+  // Quick-add + drag-reorder only when no date filter is active and we're on a single project.
+  const noDateFilter = state.activeDue === null;
+  const isSingleProject = state.activeProject !== ALL_PROJECTS;
+  const allowEditing = noDateFilter && isSingleProject;
+  document.getElementById('reorder-hint').hidden = !allowEditing;
+  document.getElementById('quick-add').hidden = !allowEditing;
+}
+
+function formatCustomRangeLabel(fromIso, toIso) {
+  // Compact: '5 May – 12 May' (or '5 May 2027 – ...' if year differs from current)
+  const from = new Date(fromIso);
+  const to = new Date(toIso);
+  const opts = { day: 'numeric', month: 'short' };
+  const sameYear = from.getFullYear() === to.getFullYear();
+  const showYear = !sameYear || from.getFullYear() !== new Date().getFullYear();
+  const fmt = (d) => d.toLocaleDateString(undefined, showYear ? { ...opts, year: 'numeric' } : opts);
+  return `${fmt(from)} – ${fmt(to)}`;
 }
 
 
@@ -227,8 +304,8 @@ function renderTasks() {
   }
   empty.hidden = true;
   state.tasks.forEach(task => ul.appendChild(buildTaskRow(task)));
-  // Drag-reorder only makes sense within a single project on the open view.
-  if (state.activeView === 'open' && state.activeList !== ALL_PROJECTS) {
+  // Drag-reorder only makes sense within a single project with no date filter.
+  if (state.activeDue === null && state.activeProject !== ALL_PROJECTS) {
     enableDragReorder(ul);
   }
 }
@@ -239,7 +316,7 @@ function buildTaskRow(task) {
   li.dataset.taskId = task.id;
   // In the All view, show project as a badge so user knows where each task is from.
   // In a single-project view, the project is implicit — hide the badge.
-  const showProjectBadge = state.activeList === ALL_PROJECTS;
+  const showProjectBadge = state.activeProject === ALL_PROJECTS;
   const hasContent = (task.description && task.description.trim()) || (task.notes && task.notes.trim());
   li.innerHTML = `
     <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
@@ -272,7 +349,7 @@ function statusTitle(status) {
 }
 
 function wireTaskRowEvents(li, task) {
-  li.querySelector('.task-name').addEventListener('click', () => openEditModal(task));
+  li.querySelector('.task-name').addEventListener('click', () => handleTaskNameClick(task));
   li.querySelector('.status-circle').addEventListener('click', e => {
     e.stopPropagation();
     toggleTaskDone(task);
@@ -304,7 +381,7 @@ function enableDragReorder(ul) {
 async function persistNewOrder(ul) {
   const ids = Array.from(ul.children).map(li => Number(li.dataset.taskId));
   try {
-    await api.reorder(state.activeList, ids);
+    await api.reorder(state.activeProject, ids);
   } catch (err) {
     alert('Reorder failed: ' + err.message);
     await refreshTasks();
@@ -314,37 +391,50 @@ async function persistNewOrder(ul) {
 
 // ---------- actions ----------
 
-async function refreshLists() {
-  const data = await api.getLists();
-  state.lists = data.lists;
-  state.defaultList = data.default;
+async function refreshProjects() {
+  const data = await api.getProjects();
+  state.projects = data.projects;
+  state.defaultProject = data.default;
   // Auto-include any tags discovered on existing projects
   collectAllTags().forEach(t => state.visibleTags.add(t));
-  if (!state.activeList && state.lists.length > 0) {
-    state.activeList = state.defaultList || state.lists[0].name;
+  if (!state.activeProject && state.projects.length > 0) {
+    state.activeProject = state.defaultProject || state.projects[0].name;
   }
-  renderLists();
+  renderProjectsNav();
   renderTagFilter();
-  updateListTitle();
+  updateProjectTitle();
   renderStats();
 }
 
 async function refreshTasks() {
-  if (!state.activeList) return;
-  if (state.activeList === ALL_PROJECTS) {
+  if (!state.activeProject) return;
+  if (state.activeProject === ALL_PROJECTS) {
     state.tasks = await fetchAllVisibleTasks();
   } else {
-    const data = await api.getTasks(state.activeList, state.activeView);
+    const data = await api.getTasks(state.activeProject, currentTaskFilters());
     state.tasks = data.tasks;
   }
   renderTasks();
 }
 
+function currentTaskFilters() {
+  const filters = { statuses: Array.from(state.activeTaskStatuses) };
+  if (state.activeDue) {
+    filters.due = state.activeDue;
+    if (state.activeDue === 'custom') {
+      filters.due_from = state.customRange.from;
+      filters.due_to = state.customRange.to;
+    }
+  }
+  return filters;
+}
+
 async function fetchAllVisibleTasks() {
   const projects = visibleProjects();
   if (projects.length === 0) return [];
+  const filters = currentTaskFilters();
   const results = await Promise.all(
-    projects.map(p => api.getTasks(p.name, state.activeView).catch(() => ({ tasks: [] })))
+    projects.map(p => api.getTasks(p.name, filters).catch(() => ({ tasks: [] })))
   );
   // Combine, then sort by due date then priority (most useful in cross-project view).
   return results
@@ -357,79 +447,157 @@ async function fetchAllVisibleTasks() {
     });
 }
 
-function switchList(name) {
-  state.activeList = name;
-  renderLists();
+function switchProject(name) {
+  state.activeProject = name;
+  renderProjectsNav();
   renderViewTabs();
-  updateListTitle();
+  updateProjectTitle();
   renderStats();
   refreshTasks();
 }
 
 function switchToAllProjects() {
-  state.activeList = ALL_PROJECTS;
-  renderLists();
+  state.activeProject = ALL_PROJECTS;
+  renderProjectsNav();
   renderViewTabs();
-  updateListTitle();
+  updateProjectTitle();
   renderStats();
   refreshTasks();
 }
 
-function switchView(view) {
-  state.activeView = view;
+function pickDueOption(due) {
+  // Single-select. Empty string ('Any') maps to null (no filter). Picks apply
+  // immediately and close the dropdown.
+  state.activeDue = due === '' ? null : due;
+  if (state.activeDue !== 'custom') {
+    state.customRange = { from: null, to: null };
+  }
+  closeAllTopBarPanels();
   renderViewTabs();
   refreshTasks();
 }
 
-function updateListTitle() {
-  const title = state.activeList === ALL_PROJECTS
-    ? `All Projects (${visibleProjects().length} of ${state.lists.length})`
-    : (state.activeList || '—');
-  document.getElementById('list-title').textContent = title;
+function applyTaskStatusFilter() {
+  if (state.pending.taskStatuses === null) return;
+  state.activeTaskStatuses = state.pending.taskStatuses;
+  state.pending.taskStatuses = null;
+  document.getElementById('task-status-filter').hidden = true;
+  renderViewTabs();
+  refreshTasks();
+}
+
+function openTaskStatusPanel() {
+  closeAllTopBarPanels();
+  state.pending.taskStatuses = new Set(state.activeTaskStatuses);
+  syncTaskStatusCheckboxes();
+  document.getElementById('task-status-filter').hidden = false;
+}
+
+function toggleTaskStatusPanel() {
+  const panel = document.getElementById('task-status-filter');
+  if (panel.hidden) openTaskStatusPanel();
+  else closeAllTopBarPanels();
+}
+
+function syncTaskStatusCheckboxes() {
+  document.querySelectorAll('#task-status-filter input[type=checkbox]').forEach(cb => {
+    cb.checked = state.pending.taskStatuses.has(cb.dataset.taskStatus);
+  });
+}
+
+function handleTaskStatusCheckboxChange(event) {
+  const cb = event.target;
+  if (cb.tagName !== 'INPUT' || state.pending.taskStatuses === null) return;
+  const status = cb.dataset.taskStatus;
+  if (cb.checked) state.pending.taskStatuses.add(status);
+  else state.pending.taskStatuses.delete(status);
+}
+
+function handleTaskStatusAction(event) {
+  const btn = event.target.closest('button[data-action]');
+  if (!btn) return;
+  if (btn.dataset.target !== 'task-status') return;
+  if (btn.dataset.action === 'apply') applyTaskStatusFilter();
+  else if (btn.dataset.action === 'select-all') {
+    state.pending.taskStatuses = new Set(ALL_STATUS_VALUES);
+    syncTaskStatusCheckboxes();
+  }
+}
+
+function handleTaskStatusDblClick(event) {
+  const btn = event.target.closest('button[data-action="select-all"]');
+  if (!btn || btn.dataset.target !== 'task-status') return;
+  state.pending.taskStatuses = new Set();
+  syncTaskStatusCheckboxes();
+}
+
+// ---------- Due filter dropdown ----------
+
+function openDueFilterPanel() {
+  closeAllTopBarPanels();
+  document.getElementById('custom-range-from').value = state.customRange.from || '';
+  document.getElementById('custom-range-to').value = state.customRange.to || '';
+  document.getElementById('due-filter-panel').hidden = false;
+}
+
+function toggleDueFilterPanel() {
+  const panel = document.getElementById('due-filter-panel');
+  if (panel.hidden) openDueFilterPanel();
+  else closeAllTopBarPanels();
+}
+
+function applyCustomRange() {
+  const from = document.getElementById('custom-range-from').value;
+  const to = document.getElementById('custom-range-to').value;
+  if (!from || !to) {
+    alert('Pick both a start and end date.');
+    return;
+  }
+  state.customRange = { from, to };
+  state.activeDue = 'custom';
+  closeAllTopBarPanels();
+  renderViewTabs();
+  refreshTasks();
+}
+
+function closeAllTopBarPanels() {
+  document.getElementById('task-status-filter').hidden = true;
+  document.getElementById('due-filter-panel').hidden = true;
+  state.pending.taskStatuses = null;
+}
+
+function updateProjectTitle() {
+  const title = state.activeProject === ALL_PROJECTS
+    ? `All Projects (${visibleProjects().length} of ${state.projects.length})`
+    : (state.activeProject || '—');
+  document.getElementById("project-title").textContent = title;
+}
+
+// In All Projects view state.activeProject is the sentinel '__all__'. Task-level
+// operations must target the task's own project, not the sentinel.
+function projectForTask(task) {
+  return state.activeProject === ALL_PROJECTS ? task.project : state.activeProject;
 }
 
 async function toggleTaskDone(task) {
   // Click the circle: done ↔ todo. Other statuses (hold, cancelled) need the modal.
+  const project = projectForTask(task);
   if (task.status === 'done') {
-    await api.reopen(state.activeList, task.id);
+    await api.reopen(project, task.id);
   } else if (task.status === 'todo' || task.status === 'in-progress') {
-    await api.markDone(state.activeList, task.id);
+    await api.markDone(project, task.id);
   } else {
     return;  // hold, cancelled — use edit modal
   }
-  await refreshLists();
+  await refreshProjects();
   await refreshTasks();
 }
 
 async function deleteTask(task) {
   if (!confirm(`Delete "${task.name}"?`)) return;
-  await api.deleteTask(state.activeList, task.id);
-  await refreshLists();
+  await api.deleteTask(projectForTask(task), task.id);
+  await refreshProjects();
   await refreshTasks();
-}
-
-
-// ---------- inline quick-add ----------
-
-async function handleQuickAddSubmit(event) {
-  event.preventDefault();
-  const input = document.getElementById('quick-add-input');
-  const name = input.value.trim();
-  if (!name) return;
-  if (!state.activeList) {
-    alert('Pick a list first.');
-    return;
-  }
-  try {
-    await api.createTask({ list: state.activeList, name });
-  } catch (err) {
-    alert('Add failed: ' + err.message);
-    return;
-  }
-  input.value = '';
-  await refreshLists();
-  await refreshTasks();
-  input.focus();  // ready for the next task
 }
 
 
@@ -441,14 +609,14 @@ async function handleNewProjectSubmit(event) {
   const name = input.value.trim();
   if (!name) return;
   try {
-    await api.createList(name);
+    await api.createProject(name);
   } catch (err) {
     alert('Create project failed: ' + err.message);
     return;
   }
   input.value = '';
-  state.activeList = name;
-  await refreshLists();
+  state.activeProject = name;
+  await refreshProjects();
   await refreshTasks();
   input.focus();
 }
@@ -511,9 +679,15 @@ function handleFilterAction(event) {
   const action = btn.dataset.action;
   const target = btn.dataset.target;
   if (action === 'apply') applyFilter(target);
-  else if (action === 'cancel') closeAllFilterPanels();
   else if (action === 'select-all') selectAllInPending(target);
-  else if (action === 'deselect-all') deselectAllInPending(target);
+}
+
+// Double-click on Select all = deselect all. Single-click selects, dblclick
+// fires after a brief select-all flicker which doubles as visual feedback.
+function handleFilterDblClick(event) {
+  const btn = event.target.closest('button[data-action="select-all"]');
+  if (!btn) return;
+  deselectAllInPending(btn.dataset.target);
 }
 
 function selectAllInPending(target) {
@@ -546,10 +720,10 @@ function applyFilter(target) {
     state.showUntagged = state.pending.showUntagged;
   }
   closeAllFilterPanels();
-  renderLists();
+  renderProjectsNav();
   // If the active project is now filtered out, fall back to All Projects view
-  if (state.activeList && state.activeList !== ALL_PROJECTS) {
-    const stillVisible = visibleProjects().some(p => p.name === state.activeList);
+  if (state.activeProject && state.activeProject !== ALL_PROJECTS) {
+    const stillVisible = visibleProjects().some(p => p.name === state.activeProject);
     if (!stillVisible) switchToAllProjects();
   }
 }
@@ -598,7 +772,7 @@ async function submitProjectForm(event) {
     return;
   }
   hideModal('project-modal');
-  await refreshLists();
+  await refreshProjects();
 }
 
 async function deleteActiveProject() {
@@ -612,19 +786,114 @@ async function deleteActiveProject() {
     return;
   }
   hideModal('project-modal');
-  if (state.activeList === name) state.activeList = null;
-  await refreshLists();
+  if (state.activeProject === name) state.activeProject = null;
+  await refreshProjects();
   await refreshTasks();
 }
 
 
 // ---------- modal: edit task ----------
 
+function handleTaskNameClick(task) {
+  const modalOpen = !document.getElementById('task-modal').hidden;
+  // Click same task again → toggle close (Notion-style)
+  if (modalOpen && state.editingTaskId === task.id) {
+    tryCloseTaskPanel();
+    return;
+  }
+  // Click different task while editing → ask before discarding, then switch
+  if (modalOpen && taskFormIsDirty()) {
+    if (!window.confirm('Discard unsaved changes?')) return;
+  }
+  openEditModal(task);
+}
+
 function openEditModal(task) {
   state.editingTaskId = task.id;
+  state.editingTaskProject = projectForTask(task);
   document.getElementById('modal-title').textContent = 'Edit task';
   fillTaskForm(task);
   showModal('task-modal');
+  state.taskFormSnapshot = snapshotTaskForm();
+  attachOutsideClickListenerOnNextTick();
+}
+
+function openCreateModal() {
+  // Default to active project; in All Projects view fall back to the default project.
+  const targetProject = state.activeProject === ALL_PROJECTS
+    ? state.defaultProject
+    : state.activeProject;
+  if (!targetProject) {
+    alert('Pick a project first.');
+    return;
+  }
+  state.editingTaskId = null;
+  state.editingTaskProject = targetProject;
+  document.getElementById('modal-title').textContent = 'New task';
+  fillTaskForm({
+    name: '',
+    due: null,
+    tags: [],
+    status: 'todo',
+    description: '',
+    notes: '',
+    project: targetProject,
+    created: null,
+  });
+  showModal('task-modal');
+  state.taskFormSnapshot = snapshotTaskForm();
+  attachOutsideClickListenerOnNextTick();
+  document.getElementById('task-form').elements.name.focus();
+}
+
+function attachOutsideClickListenerOnNextTick() {
+  setTimeout(() => {
+    document.addEventListener('mousedown', handleOutsideClickToClose);
+  }, 0);
+}
+
+function handleOutsideClickToClose(e) {
+  const modal = document.getElementById('task-modal');
+  if (modal.hidden) {
+    document.removeEventListener('mousedown', handleOutsideClickToClose);
+    return;
+  }
+  if (modal.contains(e.target)) return;  // click inside the panel
+  // Let task-row clicks be handled by handleTaskNameClick (toggle/switch logic)
+  if (e.target.closest('.task-name') || e.target.closest('.task')) return;
+  tryCloseTaskPanel();
+}
+
+function snapshotTaskForm() {
+  const form = document.getElementById('task-form');
+  return JSON.stringify(readTaskForm(form)) + '|' + form.elements.project.value;
+}
+
+function taskFormIsDirty() {
+  if (state.taskFormSnapshot === null) return false;
+  return snapshotTaskForm() !== state.taskFormSnapshot;
+}
+
+function tryCloseTaskPanel() {
+  if (!taskFormIsDirty()) {
+    closeTaskPanelAnimated();
+    return;
+  }
+  if (window.confirm('Discard unsaved changes?')) {
+    closeTaskPanelAnimated();
+  }
+}
+
+function closeTaskPanelAnimated() {
+  const modal = document.getElementById('task-modal');
+  if (modal.hidden) return;
+  modal.classList.add('closing');
+  const card = modal.querySelector('.modal-card');
+  card.addEventListener('animationend', function onEnd() {
+    card.removeEventListener('animationend', onEnd);
+    modal.classList.remove('closing');
+    modal.hidden = true;
+  }, { once: true });
 }
 
 function fillTaskForm(task) {
@@ -637,23 +906,52 @@ function fillTaskForm(task) {
   form.elements.status.value = task.status || 'todo';
   form.elements.description.value = task.description || '';
   form.elements.notes.value = task.notes || '';
-  document.getElementById('meta-project').textContent = task.project || '—';
+  populateProjectDropdown(form.elements.project, task.project);
   document.getElementById('meta-created').textContent = task.created || '—';
+}
+
+function populateProjectDropdown(select, currentProject) {
+  select.innerHTML = '';
+  state.projects.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.name;
+    opt.textContent = p.name;
+    if (p.name === currentProject) opt.selected = true;
+    select.appendChild(opt);
+  });
 }
 
 async function submitTaskForm(event) {
   event.preventDefault();
-  if (state.editingTaskId === null) return;  // edit-only modal
-  const payload = readTaskForm(event.target);
+  const form = event.target;
+  const targetProject = form.elements.project.value;
+  const payload = readTaskForm(form);
+  if (!payload.name) {
+    alert('Task name is required.');
+    return;
+  }
   try {
-    await api.updateTask(state.activeList, state.editingTaskId, payload);
+    if (state.editingTaskId === null) {
+      await api.createTask({ project: targetProject, ...payload });
+    } else {
+      await saveTaskEdits(state.editingTaskProject, state.editingTaskId, targetProject, payload);
+    }
   } catch (err) {
     alert('Save failed: ' + err.message);
     return;
   }
-  hideModal('task-modal');
-  await refreshLists();
+  closeTaskPanelAnimated();
+  await refreshProjects();
   await refreshTasks();
+}
+
+async function saveTaskEdits(sourceProject, taskId, targetProject, payload) {
+  if (targetProject && targetProject !== sourceProject) {
+    const moved = await api.moveTask(sourceProject, taskId, targetProject);
+    await api.updateTask(targetProject, moved.id, payload);
+    return;
+  }
+  await api.updateTask(sourceProject, taskId, payload);
 }
 
 function readTaskForm(form) {
@@ -667,8 +965,8 @@ function readTaskForm(form) {
     tags,
     status: form.elements.status.value,
     description: form.elements.description.value.trim() || null,
-    notes: form.elements.notes.value || null,  // preserve newlines
-    // project intentionally omitted — it's auto-set to the parent project
+    notes: form.elements.notes.value || null,
+    // project handled separately via moveTask if changed
   };
 }
 
@@ -734,10 +1032,10 @@ function combineDateTimeToIso(dateStr, timeStr) {
 // In All view: combined stats across all visible projects.
 function renderStats() {
   let open = 0, done = 0;
-  if (state.activeList === ALL_PROJECTS) {
+  if (state.activeProject === ALL_PROJECTS) {
     visibleProjects().forEach(p => { open += p.open || 0; done += p.done || 0; });
   } else {
-    const summary = state.lists.find(l => l.name === state.activeList);
+    const summary = state.projects.find(l => l.name === state.activeProject);
     open = summary ? summary.open : 0;
     done = summary ? summary.done : 0;
   }
@@ -750,19 +1048,69 @@ function renderStats() {
 }
 
 
+// ---------- theme ----------
+//
+// CSS variables drive everything; we just toggle data-theme on <html>.
+// Saved choice in localStorage wins; otherwise follow prefers-color-scheme.
+
+const THEME_KEY = 'todo-bytes:theme';
+const SUN = '☀';
+const MOON = '☾';
+
+function resolveInitialTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  if (saved === 'light' || saved === 'dark') return saved;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = theme === 'dark' ? SUN : MOON;
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
+  const next = current === 'dark' ? 'light' : 'dark';
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
+}
+
+
 // ---------- boot ----------
 
+// Apply the theme as early as possible to avoid a light-flash on dark loads.
+applyTheme(resolveInitialTheme());
+
 document.addEventListener('DOMContentLoaded', async () => {
-  document.querySelectorAll('.view-tab').forEach(tab => {
-    tab.addEventListener('click', () => switchView(tab.dataset.view));
+  // Top-bar Due dropdown (single-select)
+  document.getElementById('due-filter-btn').addEventListener('click', toggleDueFilterPanel);
+  document.querySelectorAll('.due-option').forEach(opt => {
+    opt.addEventListener('click', () => pickDueOption(opt.dataset.due));
   });
+  document.getElementById('custom-range-apply').addEventListener('click', applyCustomRange);
+
+  // Top-bar task status multiselect
+  document.getElementById('task-status-btn').addEventListener('click', toggleTaskStatusPanel);
+  document.getElementById('task-status-filter').addEventListener('change', handleTaskStatusCheckboxChange);
+  document.getElementById('task-status-filter').addEventListener('click', handleTaskStatusAction);
+  document.getElementById('task-status-filter').addEventListener('dblclick', handleTaskStatusDblClick);
 
   // Task modal
-  document.getElementById('modal-cancel').addEventListener('click', () => hideModal('task-modal'));
+  document.getElementById('modal-cancel').addEventListener('click', tryCloseTaskPanel);
   document.getElementById('task-form').addEventListener('submit', submitTaskForm);
 
-  // Inline task quick-add
-  document.getElementById('quick-add').addEventListener('submit', handleQuickAddSubmit);
+  // Esc closes any open modal (asks before discarding unsaved task changes)
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (!document.getElementById('task-modal').hidden) tryCloseTaskPanel();
+    hideModal('project-modal');
+  });
+
+
+
+  // Quick-add trigger — clicking the row opens the full new-task panel.
+  document.getElementById('quick-add-trigger').addEventListener('click', openCreateModal);
 
   // Inline new-project form (sidebar)
   document.getElementById('new-project-form').addEventListener('submit', handleNewProjectSubmit);
@@ -772,7 +1120,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('tag-filter-btn').addEventListener('click', () => toggleFilterPanel('tag'));
   document.getElementById('status-filter').addEventListener('change', handleStatusCheckboxChange);
   document.getElementById('status-filter').addEventListener('click', handleFilterAction);
+  document.getElementById('status-filter').addEventListener('dblclick', handleFilterDblClick);
   document.getElementById('tag-filter').addEventListener('click', handleFilterAction);
+  document.getElementById('tag-filter').addEventListener('dblclick', handleFilterDblClick);
+
+  // Theme toggle (also re-syncs the icon since the button didn't exist when applyTheme ran early)
+  applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
+  document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
 
   // 'All Projects' button at the top of the sidebar
   document.getElementById('all-projects-btn').addEventListener('click', switchToAllProjects);
@@ -783,6 +1137,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('project-delete').addEventListener('click', deleteActiveProject);
 
   renderViewTabs();
-  await refreshLists();
+  await refreshProjects();
   await refreshTasks();
 });

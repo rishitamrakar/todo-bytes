@@ -2,7 +2,7 @@
 
 Config lives at ~/.config/todo-bytes/config.yaml and tells the CLI:
   - where the user's task data dir is
-  - which list is the default
+  - which project is the default
   - which port the UI runs on
 """
 
@@ -14,7 +14,7 @@ from pathlib import Path
 import yaml
 
 
-DEFAULT_LIST = "work"
+DEFAULT_PROJECT = "work"
 DEFAULT_UI_PORT = 8765
 
 
@@ -34,14 +34,14 @@ def get_default_data_dir() -> Path:
 @dataclass
 class Config:
     data_dir: str
-    default_list: str
+    default_project: str
     ui_port: int
 
     @classmethod
     def defaults(cls) -> "Config":
         return cls(
             data_dir=str(get_default_data_dir()),
-            default_list=DEFAULT_LIST,
+            default_project=DEFAULT_PROJECT,
             ui_port=DEFAULT_UI_PORT,
         )
 
@@ -51,7 +51,12 @@ def config_exists() -> bool:
 
 
 def load_config() -> Config:
-    """Read config from disk. Raises FileNotFoundError if not set up yet."""
+    """Read config from disk. Raises FileNotFoundError if not set up yet.
+
+    Backward-compat: pre-v1.2 configs used the key 'default_list'. We read
+    either 'default_project' (new) or 'default_list' (legacy) and write the
+    new key on next save — so existing configs migrate transparently.
+    """
     config_file = get_config_file()
     if not config_exists():
         raise FileNotFoundError(
@@ -60,7 +65,7 @@ def load_config() -> Config:
     raw = yaml.safe_load(config_file.read_text()) or {}
     return Config(
         data_dir=raw.get("data_dir", str(get_default_data_dir())),
-        default_list=raw.get("default_list", DEFAULT_LIST),
+        default_project=raw.get("default_project") or raw.get("default_list") or DEFAULT_PROJECT,
         ui_port=int(raw.get("ui_port", DEFAULT_UI_PORT)),
     )
 

@@ -1,11 +1,21 @@
 """todo-bytes CLI entry point.
 
-Phase 1 commands:
+Setup:
   todo init                         — interactive setup
   todo config show                  — print current config
   todo config set <key> <value>     — update a config field
 
-Phase 2 commands (operate on the default list):
+Projects:
+  todo projects show                — list all projects with task counts
+  todo projects create <name>       — create a new project
+  todo projects delete <name>       — delete a project
+  todo use <name>                   — set the default project
+
+Agent skill:
+  todo skill install [--dir <path>] — copy the agent skill folder out
+                                       (default: ~/.agents/skills/)
+
+Tasks (operate on the default project):
   todo add "task name" [--due ...] [--tag ...] [--project ...]
   todo list
   todo show <id>
@@ -29,7 +39,7 @@ from rich.table import Table
 from todo_bytes import __version__
 from todo_bytes.config import (
     Config,
-    DEFAULT_LIST,
+    DEFAULT_PROJECT,
     DEFAULT_UI_PORT,
     config_exists,
     get_config_file,
@@ -43,18 +53,18 @@ from todo_bytes.models import END_OF_DAY, STATUS_DONE, Task
 from todo_bytes import views
 from todo_bytes.store import (
     CURRENT_SCHEMA_VERSION,
-    CannotDeleteDefaultListError,
-    ListAlreadyExistsError,
-    ListNotFoundError,
+    CannotDeleteDefaultProjectError,
+    ProjectAlreadyExistsError,
+    ProjectNotFoundError,
     TaskNotFoundError,
     add_task,
-    all_lists,
-    create_list,
-    delete_list,
+    all_projects,
+    create_project,
+    delete_project,
     delete_task,
     find_task,
-    list_exists,
-    list_summary,
+    project_exists,
+    project_summary,
     load_tasks,
     mark_done,
     update_task,
@@ -69,8 +79,10 @@ app = typer.Typer(
 )
 config_app = typer.Typer(help="Show or update todo-bytes config.", no_args_is_help=True)
 app.add_typer(config_app, name="config")
-lists_app = typer.Typer(help="Manage task lists.", no_args_is_help=True)
-app.add_typer(lists_app, name="lists")
+projects_app = typer.Typer(help="Manage projects.", no_args_is_help=True)
+app.add_typer(projects_app, name="projects")
+skill_app = typer.Typer(help="Install the agent skill that ships with todo-bytes.", no_args_is_help=True)
+app.add_typer(skill_app, name="skill")
 
 console = Console()
 
@@ -88,23 +100,23 @@ def version():
 @app.command()
 def init(
     data_dir: str = typer.Option(None, "--data-dir", help="Where task yaml files live."),
-    default_list: str = typer.Option(None, "--default-list", help="Name of the default list."),
+    default_project: str = typer.Option(None, "--default-project", help="Name of the default project."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompts."),
 ):
-    """Set up todo-bytes — pick a data dir and create your first list."""
+    """Set up todo-bytes — pick a data dir and create your first project."""
     if config_exists() and not yes:
         _confirm_overwrite_or_exit(get_config_file())
 
     chosen_data_dir = data_dir or _prompt_data_dir()
-    chosen_list = default_list or _prompt_default_list()
+    chosen_project = default_project or _prompt_default_project()
 
     data_path = Path(chosen_data_dir).expanduser().resolve()
     _create_data_dir(data_path)
-    _create_empty_list_file(data_path, chosen_list)
+    _create_empty_project_file(data_path, chosen_project)
 
     config = Config(
         data_dir=str(data_path),
-        default_list=chosen_list,
+        default_project=chosen_project,
         ui_port=DEFAULT_UI_PORT,
     )
     save_config(config)
@@ -125,10 +137,10 @@ def _prompt_data_dir() -> str:
     )
 
 
-def _prompt_default_list() -> str:
+def _prompt_default_project() -> str:
     return typer.prompt(
-        "Default list name?",
-        default=DEFAULT_LIST,
+        "Default project name?",
+        default=DEFAULT_PROJECT,
     )
 
 
@@ -137,15 +149,15 @@ def _create_data_dir(path: Path) -> None:
     console.print(f"[green]✓[/green] Data dir ready: {path}")
 
 
-def _create_empty_list_file(data_dir: Path, list_name: str) -> None:
-    list_file = data_dir / f"{list_name}.yaml"
-    if list_file.exists():
-        console.print(f"[dim]· Project file already exists: {list_file}[/dim]")
+def _create_empty_project_file(data_dir: Path, project_name: str) -> None:
+    project_file = data_dir / f"{project_name}.yaml"
+    if project_file.exists():
+        console.print(f"[dim]· Project file already exists: {project_file}[/dim]")
         return
     payload = {
         "schema_version": CURRENT_SCHEMA_VERSION,
         "project": {
-            "name": list_name,
+            "name": project_name,
             "description": None,
             "status": "todo",
             "due": None,
@@ -154,8 +166,8 @@ def _create_empty_list_file(data_dir: Path, list_name: str) -> None:
         },
         "tasks": [],
     }
-    list_file.write_text(yaml.safe_dump(payload, sort_keys=False))
-    console.print(f"[green]✓[/green] Created project file: {list_file}")
+    project_file.write_text(yaml.safe_dump(payload, sort_keys=False))
+    console.print(f"[green]✓[/green] Created project file: {project_file}")
 
 
 def _print_init_summary(config: Config) -> None:
@@ -183,7 +195,7 @@ def config_show():
 
 @config_app.command("set")
 def config_set(key: str, value: str):
-    """Update a single config field. Example: todo config set default_list personal"""
+    """Update a single config field. Example: todo config set default_project personal"""
     try:
         updated = update_config(key, value)
     except FileNotFoundError as err:
@@ -191,7 +203,7 @@ def config_set(key: str, value: str):
         raise typer.Exit(code=1)
     except KeyError as err:
         console.print(f"[red]{err}[/red]")
-        console.print("Valid keys: data_dir, default_list, ui_port")
+        console.print("Valid keys: data_dir, default_project, ui_port")
         raise typer.Exit(code=1)
     except ValueError as err:
         console.print(f"[red]Invalid value for {key}: {err}[/red]")
@@ -207,45 +219,45 @@ def _load_config_or_exit() -> Config:
         raise typer.Exit(code=1)
 
 
-# ---------- list management commands ----------
+# ---------- project management commands ----------
 
-@lists_app.command("show")
-def lists_show_cmd():
-    """Show all task lists with their counts."""
+@projects_app.command("show")
+def projects_show_cmd():
+    """Show all projects with their task counts."""
     config = _load_config_or_exit()
-    names = all_lists(config)
+    names = all_projects(config)
     if not names:
-        console.print("[dim]No lists yet. Create one with [cyan]todo lists create <name>[/cyan][/dim]")
+        console.print("[dim]No projects yet. Create one with [cyan]todo projects create <name>[/cyan][/dim]")
         return
-    console.print(_render_lists_table(names, config))
+    console.print(_render_projects_table(names, config))
 
 
-@lists_app.command("create")
-def lists_create_cmd(name: str = typer.Argument(..., help="Name of the new list.")):
-    """Create a new empty task list."""
+@projects_app.command("create")
+def projects_create_cmd(name: str = typer.Argument(..., help="Name of the new project.")):
+    """Create a new empty project."""
     config = _load_config_or_exit()
     try:
-        path = create_list(name, config)
-    except ListAlreadyExistsError as err:
+        create_project(name, config=config)
+    except ProjectAlreadyExistsError as err:
         _exit_with_error(str(err))
-    console.print(f"[green]✓[/green] Created list [bold]{name}[/bold] at {path}")
+    console.print(f"[green]✓[/green] Created project [bold]{name}[/bold]")
 
 
-@lists_app.command("delete")
-def lists_delete_cmd(
-    name: str = typer.Argument(..., help="Name of the list to delete."),
+@projects_app.command("delete")
+def projects_delete_cmd(
+    name: str = typer.Argument(..., help="Name of the project to delete."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation."),
 ):
-    """Delete a task list. Refuses if it is the current default."""
+    """Delete a project. Refuses if it is the current default."""
     config = _load_config_or_exit()
-    _confirm_list_delete_or_exit(name, config, skip=yes)
+    _confirm_project_delete_or_exit(name, config, skip=yes)
     try:
-        delete_list(name, config)
-    except CannotDeleteDefaultListError as err:
+        delete_project(name, config)
+    except CannotDeleteDefaultProjectError as err:
         _exit_with_error(str(err))
-    except ListNotFoundError as err:
+    except ProjectNotFoundError as err:
         _exit_with_error(str(err))
-    console.print(f"[yellow]✖[/yellow] Deleted list [bold]{name}[/bold]")
+    console.print(f"[yellow]✖[/yellow] Deleted project [bold]{name}[/bold]")
 
 
 @app.command("ui")
@@ -271,17 +283,70 @@ def ui_cmd(
     run_server(port=target_port, open_browser=not no_browser)
 
 
+# ---------- skill install ----------
+
+DEFAULT_SKILLS_DIR = Path.home() / ".agents" / "skills"
+SKILL_FOLDER_NAME = "todo-bytes"
+
+
+@skill_app.command("install")
+def skill_install_cmd(
+    dir: Optional[str] = typer.Option(
+        None,
+        "--dir",
+        "-d",
+        help="Parent dir to copy the skill folder into. Defaults to ~/.agents/skills/",
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Overwrite existing skill folder without asking."),
+):
+    """Copy the agent skill folder shipped with todo-bytes into a directory.
+
+    The skill ships inside the package so pipx-installed users have it.
+    This command copies it out to wherever your agent (Pi, Claude Code, etc.)
+    looks for skills.
+    """
+    source = _locate_packaged_skill()
+    target_parent = Path(dir).expanduser().resolve() if dir else DEFAULT_SKILLS_DIR
+    target = target_parent / SKILL_FOLDER_NAME
+    _confirm_skill_overwrite_or_exit(target, skip=yes)
+    _copy_skill_folder(source, target)
+    console.print(f"[green]✓[/green] Skill installed at [bold]{target}[/bold]")
+
+
+def _locate_packaged_skill() -> Path:
+    source = Path(__file__).parent / "skills" / SKILL_FOLDER_NAME
+    if not source.is_dir():
+        _exit_with_error(f"Packaged skill folder not found at {source}")
+    return source
+
+
+def _confirm_skill_overwrite_or_exit(target: Path, skip: bool) -> None:
+    if not target.exists() or skip:
+        return
+    if not typer.confirm(f"Skill folder already exists at {target}. Overwrite?", default=False):
+        console.print("[yellow]Aborted.[/yellow]")
+        raise typer.Exit(code=1)
+
+
+def _copy_skill_folder(source: Path, target: Path) -> None:
+    import shutil
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(source, target)
+
+
 @app.command("use")
-def use_cmd(name: str = typer.Argument(..., help="List to set as default.")):
-    """Set the default list. Future commands without --list will use this one."""
+def use_cmd(name: str = typer.Argument(..., help="Project to set as default.")):
+    """Set the default project. Future commands without --project will use this one."""
     config = _load_config_or_exit()
-    if not list_exists(name, config):
+    if not project_exists(name, config):
         _exit_with_error(
-            f"List '{name}' does not exist. Create it first with `todo lists create {name}`."
+            f"Project '{name}' does not exist. Create it first with `todo projects create {name}`."
         )
     from todo_bytes.config import update_config
-    update_config("default_list", name)
-    console.print(f"[green]✓[/green] Default list is now [bold]{name}[/bold]")
+    update_config("default_project", name)
+    console.print(f"[green]✓[/green] Default project is now [bold]{name}[/bold]")
 
 
 # ---------- task commands ----------
@@ -296,18 +361,18 @@ def add_cmd(
 ):
     """Add a new task."""
     config = _load_config_or_exit()
-    target_project = _resolve_list(project, config)
+    target_project = _resolve_project(project, config)
     due_date = _parse_due_or_exit(due) if due else None
     try:
         task = add_task(
-            list_name=target_project,
+            project_name=target_project,
             name=name,
             due=due_date,
             tags=tag or [],
             description=description,
             config=config,
         )
-    except ListNotFoundError as err:
+    except ProjectNotFoundError as err:
         _exit_with_error(str(err))
     console.print(f"[green]✓[/green] Added [bold]#{task.id}[/bold] {task.name} [dim](project: {target_project})[/dim]")
 
@@ -327,7 +392,7 @@ def list_cmd(
 ):
     """Show tasks. Without filter flags, shows all open tasks."""
     config = _load_config_or_exit()
-    target_project = _resolve_list(project, config)
+    target_project = _resolve_project(project, config)
     tasks = _load_tasks_or_exit(target_project, config)
 
     view_flags = {
@@ -354,7 +419,7 @@ def show_cmd(
 ):
     """Show full details of a single task."""
     config = _load_config_or_exit()
-    target_project = _resolve_list(project, config)
+    target_project = _resolve_project(project, config)
     tasks = _load_tasks_or_exit(target_project, config)
     try:
         task = find_task(tasks, task_id)
@@ -370,10 +435,10 @@ def done_cmd(
 ):
     """Mark a task as done."""
     config = _load_config_or_exit()
-    target_project = _resolve_list(project, config)
+    target_project = _resolve_project(project, config)
     try:
         task = mark_done(target_project, task_id, config=config)
-    except (ListNotFoundError, TaskNotFoundError) as err:
+    except (ProjectNotFoundError, TaskNotFoundError) as err:
         _exit_with_error(str(err))
     console.print(f"[green]✓[/green] Done: [bold]#{task.id}[/bold] {task.name}")
 
@@ -385,10 +450,10 @@ def rm_cmd(
 ):
     """Delete a task."""
     config = _load_config_or_exit()
-    target_project = _resolve_list(project, config)
+    target_project = _resolve_project(project, config)
     try:
         delete_task(target_project, task_id, config=config)
-    except (ListNotFoundError, TaskNotFoundError) as err:
+    except (ProjectNotFoundError, TaskNotFoundError) as err:
         _exit_with_error(str(err))
     console.print(f"[yellow]✖[/yellow] Removed [bold]#{task_id}[/bold]")
 
@@ -404,13 +469,13 @@ def edit_cmd(
 ):
     """Edit fields on an existing task."""
     config = _load_config_or_exit()
-    target_project = _resolve_list(project, config)
+    target_project = _resolve_project(project, config)
     fields = _build_edit_fields(name=name, due=due, tag=tag, description=description)
     if not fields:
         _exit_with_error("Nothing to edit. Pass --name, --due, --tag, or --description.")
     try:
         task = update_task(target_project, task_id, config=config, **fields)
-    except (ListNotFoundError, TaskNotFoundError) as err:
+    except (ProjectNotFoundError, TaskNotFoundError) as err:
         _exit_with_error(str(err))
     except KeyError as err:
         _exit_with_error(str(err))
@@ -419,9 +484,9 @@ def edit_cmd(
 
 # ---------- task command helpers ----------
 
-def _resolve_list(list_name: Optional[str], config: Config) -> str:
-    """Return the target list — either the explicit --list value or the default."""
-    return list_name or config.default_list
+def _resolve_project(project_name: Optional[str], config: Config) -> str:
+    """Return the target project — either the explicit --project value or the default."""
+    return project_name or config.default_project
 
 
 # ---------- view selection helpers ----------
@@ -439,16 +504,32 @@ def _pick_view_or_exit(view_flags: dict[str, bool]) -> str:
     return active[0] if active else DEFAULT_VIEW
 
 
+# CLI views compose the new orthogonal date filters with an active-status
+# filter so the day-to-day commands keep their existing "hide done" feel.
+# The UI uses the orthogonal filters directly for full control.
+
+from todo_bytes.models import ACTIVE_STATUSES
+
+
+def _active_only(tasks: list[Task]) -> list[Task]:
+    return views.filter_by_statuses(tasks, ACTIVE_STATUSES)
+
+
 def _apply_view(tasks: list[Task], view_name: str) -> list[Task]:
-    """Apply the date/status filter that corresponds to a view name."""
+    """Apply the date/status filter that corresponds to a view name.
+
+    For day-to-day views (open / today / overdue / tomorrow / week / next-week
+    / no-due) the CLI keeps showing only active tasks (todo + in-progress).
+    `done` and `all` are explicit overrides.
+    """
     view_map = {
-        "open": lambda ts: [t for t in ts if views.is_open(t)],
-        "today": views.filter_today,
-        "overdue": views.filter_overdue,
-        "tomorrow": views.filter_tomorrow,
-        "week": views.filter_this_week,
-        "next-week": views.filter_next_week,
-        "no-due": views.filter_no_due,
+        "open": _active_only,
+        "today": lambda ts: _active_only(views.filter_today(ts)),
+        "overdue": lambda ts: _active_only(views.filter_overdue(ts)),
+        "tomorrow": lambda ts: _active_only(views.filter_tomorrow(ts)),
+        "week": lambda ts: _active_only(views.filter_this_week(ts)),
+        "next-week": lambda ts: _active_only(views.filter_next_week(ts)),
+        "no-due": lambda ts: _active_only(views.filter_no_due(ts)),
         "done": views.filter_done_recent,
         "all": views.filter_all,
     }
@@ -463,17 +544,17 @@ def _sort_for_view(tasks: list[Task], view_name: str) -> list[Task]:
     return views.sort_by_priority(tasks)
 
 
-def _empty_view_message(view_name: str, list_name: str) -> str:
+def _empty_view_message(view_name: str, project_name: str) -> str:
     if view_name == "open":
-        return f"[dim]No open tasks in '{list_name}'. Add one with [cyan]todo add \"...\"[/cyan][/dim]"
-    return f"[dim]Nothing matches --{view_name} in '{list_name}'.[/dim]"
+        return f"[dim]No open tasks in '{project_name}'. Add one with [cyan]todo add \"...\"[/cyan][/dim]"
+    return f"[dim]Nothing matches --{view_name} in '{project_name}'.[/dim]"
 
 
-def _confirm_list_delete_or_exit(name: str, config: Config, skip: bool) -> None:
+def _confirm_project_delete_or_exit(name: str, config: Config, skip: bool) -> None:
     if skip:
         return
-    summary = list_summary(name, config) if list_exists(name, config) else None
-    msg = f"Delete list '{name}'"
+    summary = project_summary(name, config) if project_exists(name, config) else None
+    msg = f"Delete project '{name}'"
     if summary and summary["total"] > 0:
         msg += f" with {summary['total']} task(s)"
     msg += "?"
@@ -498,10 +579,10 @@ def _format_due(due) -> str:
     return due.strftime("%Y-%m-%d %H:%M")
 
 
-def _load_tasks_or_exit(list_name: str, config: Config) -> list[Task]:
+def _load_tasks_or_exit(project_name: str, config: Config) -> list[Task]:
     try:
-        return load_tasks(list_name, config=config)
-    except ListNotFoundError as err:
+        return load_tasks(project_name, config=config)
+    except ProjectNotFoundError as err:
         _exit_with_error(str(err))
 
 
@@ -547,9 +628,9 @@ VIEW_TITLES = {
 }
 
 
-def _render_tasks_table(tasks: list[Task], list_name: str, view_name: str = "open") -> Table:
+def _render_tasks_table(tasks: list[Task], project_name: str, view_name: str = "open") -> Table:
     title_prefix = VIEW_TITLES.get(view_name, "Tasks")
-    table = Table(title=f"{title_prefix} — {list_name}", title_style="bold")
+    table = Table(title=f"{title_prefix} — {project_name}", title_style="bold")
     table.add_column("#", style="dim", justify="right")
     table.add_column("Task")
     if view_name == "all":
@@ -588,15 +669,15 @@ def _render_task_details(task: Task) -> Table:
     return table
 
 
-def _render_lists_table(names: list[str], config: Config) -> Table:
-    table = Table(title="Lists", title_style="bold")
+def _render_projects_table(names: list[str], config: Config) -> Table:
+    table = Table(title="Projects", title_style="bold")
     table.add_column("Name")
     table.add_column("Open", justify="right", style="cyan")
     table.add_column("Done", justify="right", style="dim")
     table.add_column("Default", justify="center")
     for name in names:
-        summary = list_summary(name, config)
-        is_default = "✓" if name == config.default_list else ""
+        summary = project_summary(name, config)
+        is_default = "✓" if name == config.default_project else ""
         table.add_row(name, str(summary["open"]), str(summary["done"]), is_default)
     return table
 
