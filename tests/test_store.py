@@ -51,7 +51,7 @@ def test_save_then_load_roundtrip(setup_project):
     task = Task(
         id=1, name="hello", priority=1,
         due=datetime(2026, 5, 10, 23, 59, 59),
-        tags=["work", "blog"], project="rb",
+        tags=["work", "blog"], project="personal",
     )
     store.save_tasks("work", [task], setup_project)
     loaded = store.load_tasks("work", setup_project)
@@ -60,7 +60,7 @@ def test_save_then_load_roundtrip(setup_project):
     assert loaded[0].name == "hello"
     assert loaded[0].due == datetime(2026, 5, 10, 23, 59, 59)
     assert loaded[0].tags == ["work", "blog"]
-    assert loaded[0].project == "rb"
+    assert loaded[0].project == "personal"
 
 
 # ---------- helpers ----------
