@@ -176,6 +176,19 @@ The CLI uses Rich for formatted output (tables, colors). The output is human-rea
 
 When the agent needs structured data, it can parse the table output. There is no `--json` flag yet (deferred — see roadmap).
 
+### Agent tip — terminal width
+
+Rich auto-sizes tables to the terminal. In a non-TTY agent shell (e.g. running `todo` via a Bash tool), it falls back to a narrow default (~80 cols), which wraps long task names across multiple rows and looks truncated.
+
+**Always prefix `todo list` / `todo show` with `COLUMNS=200`** when running from an agent:
+
+```bash
+COLUMNS=200 todo list --all
+COLUMNS=200 todo show 3
+```
+
+Bump higher (e.g. `COLUMNS=240`) if task names are very long.
+
 ## Where data lives
 
 - **Config:** `~/.config/todo-bytes/config.yaml` — points at data dir, default project, UI port
