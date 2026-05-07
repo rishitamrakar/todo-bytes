@@ -277,7 +277,7 @@ function renderQuickAddVisibility() {
   const isSingleProject = state.activeProject !== ALL_PROJECTS;
   const allowEditing = noDateFilter && isSingleProject;
   document.getElementById('reorder-hint').hidden = !allowEditing;
-  document.getElementById('quick-add').hidden = !allowEditing;
+  document.getElementById('quick-add-trigger').hidden = !allowEditing;
 }
 
 function formatCustomRangeLabel(fromIso, toIso) {
@@ -908,6 +908,8 @@ function fillTaskForm(task) {
   form.elements.notes.value = task.notes || '';
   populateProjectDropdown(form.elements.project, task.project);
   document.getElementById('meta-created').textContent = task.created || '—';
+  // Auto-open notes if the task has notes; collapse otherwise.
+  document.getElementById('notes-details').open = Boolean((task.notes || '').trim());
 }
 
 function populateProjectDropdown(select, currentProject) {
