@@ -439,16 +439,32 @@ def _pick_view_or_exit(view_flags: dict[str, bool]) -> str:
     return active[0] if active else DEFAULT_VIEW
 
 
+# CLI views compose the new orthogonal date filters with an active-status
+# filter so the day-to-day commands keep their existing "hide done" feel.
+# The UI uses the orthogonal filters directly for full control.
+
+from todo_bytes.models import ACTIVE_STATUSES
+
+
+def _active_only(tasks: list[Task]) -> list[Task]:
+    return views.filter_by_statuses(tasks, ACTIVE_STATUSES)
+
+
 def _apply_view(tasks: list[Task], view_name: str) -> list[Task]:
-    """Apply the date/status filter that corresponds to a view name."""
+    """Apply the date/status filter that corresponds to a view name.
+
+    For day-to-day views (open / today / overdue / tomorrow / week / next-week
+    / no-due) the CLI keeps showing only active tasks (todo + in-progress).
+    `done` and `all` are explicit overrides.
+    """
     view_map = {
-        "open": lambda ts: [t for t in ts if views.is_open(t)],
-        "today": views.filter_today,
-        "overdue": views.filter_overdue,
-        "tomorrow": views.filter_tomorrow,
-        "week": views.filter_this_week,
-        "next-week": views.filter_next_week,
-        "no-due": views.filter_no_due,
+        "open": _active_only,
+        "today": lambda ts: _active_only(views.filter_today(ts)),
+        "overdue": lambda ts: _active_only(views.filter_overdue(ts)),
+        "tomorrow": lambda ts: _active_only(views.filter_tomorrow(ts)),
+        "week": lambda ts: _active_only(views.filter_this_week(ts)),
+        "next-week": lambda ts: _active_only(views.filter_next_week(ts)),
+        "no-due": lambda ts: _active_only(views.filter_no_due(ts)),
         "done": views.filter_done_recent,
         "all": views.filter_all,
     }

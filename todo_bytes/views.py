@@ -39,7 +39,11 @@ def next_week_bounds(today: date) -> tuple[date, date]:
     return monday + timedelta(days=7), sunday + timedelta(days=7)
 
 
-# ---------- date-based filters (open tasks only) ----------
+# ---------- date filters (orthogonal — status not baked in) ----------
+#
+# Each filter only checks the due date. Status filtering is a separate axis,
+# composed via filter_by_statuses(). This lets the UI / API mix any date
+# filter with any status set independently.
 
 def _due_date(task: Task) -> Optional[date]:
     """Date part of task.due (or None). Filters compare on date, not exact datetime.
@@ -56,34 +60,55 @@ def _due_date(task: Task) -> Optional[date]:
 
 def filter_today(tasks: list[Task], today: date | None = None) -> list[Task]:
     today = today or date.today()
-    return [t for t in tasks if is_open(t) and _due_date(t) == today]
+    return [t for t in tasks if _due_date(t) == today]
 
 
 def filter_overdue(tasks: list[Task], today: date | None = None) -> list[Task]:
     today = today or date.today()
-    return [t for t in tasks if is_open(t) and _due_date(t) is not None and _due_date(t) < today]
+    return [t for t in tasks if _due_date(t) is not None and _due_date(t) < today]
 
 
 def filter_tomorrow(tasks: list[Task], today: date | None = None) -> list[Task]:
     today = today or date.today()
     tomorrow = today + timedelta(days=1)
-    return [t for t in tasks if is_open(t) and _due_date(t) == tomorrow]
+    return [t for t in tasks if _due_date(t) == tomorrow]
 
 
 def filter_this_week(tasks: list[Task], today: date | None = None) -> list[Task]:
     today = today or date.today()
     monday, sunday = week_bounds(today)
-    return [t for t in tasks if is_open(t) and _due_date(t) is not None and monday <= _due_date(t) <= sunday]
+    return [t for t in tasks if _due_date(t) is not None and monday <= _due_date(t) <= sunday]
 
 
 def filter_next_week(tasks: list[Task], today: date | None = None) -> list[Task]:
     today = today or date.today()
     monday, sunday = next_week_bounds(today)
-    return [t for t in tasks if is_open(t) and _due_date(t) is not None and monday <= _due_date(t) <= sunday]
+    return [t for t in tasks if _due_date(t) is not None and monday <= _due_date(t) <= sunday]
 
 
 def filter_no_due(tasks: list[Task]) -> list[Task]:
-    return [t for t in tasks if is_open(t) and t.due is None]
+    return [t for t in tasks if t.due is None]
+
+
+def filter_in_date_range(tasks: list[Task], start: date, end: date) -> list[Task]:
+    """Tasks whose due date falls in [start, end] inclusive on both ends.
+
+    For datetime tasks the date part is compared, so a task due
+    2026-05-12T18:30 is included when end=2026-05-12.
+    """
+    if start > end:
+        start, end = end, start  # be forgiving on swapped bounds
+    return [t for t in tasks if _due_date(t) is not None and start <= _due_date(t) <= end]
+
+
+# ---------- status filter ----------
+
+def filter_by_statuses(tasks: list[Task], statuses: list[str] | set[str] | None) -> list[Task]:
+    """Keep tasks whose status is in the given set. None / empty = pass-through."""
+    if not statuses:
+        return tasks
+    allowed = set(statuses)
+    return [t for t in tasks if t.status in allowed]
 
 
 # ---------- status-based filters ----------
