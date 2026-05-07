@@ -84,23 +84,34 @@
       </header>
 
       <nav class="views" id="views">
-        <div class="date-chips">
-          <button class="view-tab" data-due="today">Today</button>
-          <button class="view-tab" data-due="tomorrow">Tomorrow</button>
-          <button class="view-tab" data-due="week">This week</button>
-          <button class="view-tab" data-due="next-week">Next week</button>
-          <button class="view-tab" data-due="overdue">Overdue</button>
-          <button class="view-tab" data-due="no-due">No due</button>
-          <button class="view-tab" data-due="custom" id="custom-range-chip">
-            <span id="custom-range-label">Custom…</span> <span class="caret">▾</span>
-          </button>
-        </div>
-
-        <span class="views-spacer"></span>
+        <button class="filter-chip" id="due-filter-btn" title="Filter tasks by due date">
+          <span id="due-chip-label">Due</span> <span class="caret">▾</span>
+        </button>
 
         <button class="filter-chip" id="task-status-btn" title="Filter tasks by status">
-          Status <span class="caret">▾</span>
+          <span id="task-status-chip-label">Status</span> <span class="caret">▾</span>
         </button>
+
+        <div class="filter-panel" id="due-filter-panel" hidden>
+          <button type="button" class="due-option" data-due="">Any</button>
+          <button type="button" class="due-option" data-due="today">Today</button>
+          <button type="button" class="due-option" data-due="tomorrow">Tomorrow</button>
+          <button type="button" class="due-option" data-due="week">This week</button>
+          <button type="button" class="due-option" data-due="next-week">Next week</button>
+          <button type="button" class="due-option" data-due="overdue">Overdue</button>
+          <button type="button" class="due-option" data-due="no-due">No due</button>
+          <div class="due-custom">
+            <div class="filter-panel-header">Custom range</div>
+            <div class="date-time-inputs">
+              <input type="date" id="custom-range-from" />
+              <input type="date" id="custom-range-to" />
+            </div>
+            <div class="filter-actions">
+              <span style="flex:1"></span>
+              <button type="button" class="btn-primary btn-mini" id="custom-range-apply">Apply range</button>
+            </div>
+          </div>
+        </div>
 
         <div class="filter-panel" id="task-status-filter" hidden>
           <div class="filter-panel-header">Show tasks with status:</div>
@@ -113,18 +124,6 @@
             <button type="button" class="btn-secondary btn-mini" data-action="select-all" data-target="task-status">Select all</button>
             <span style="flex:1"></span>
             <button type="button" class="btn-primary btn-mini" data-action="apply" data-target="task-status">Apply</button>
-          </div>
-        </div>
-
-        <div class="filter-panel" id="custom-range-popover" hidden>
-          <div class="filter-panel-header">Due date range</div>
-          <div class="date-time-inputs">
-            <input type="date" id="custom-range-from" />
-            <input type="date" id="custom-range-to" />
-          </div>
-          <div class="filter-actions">
-            <span style="flex:1"></span>
-            <button type="button" class="btn-primary btn-mini" id="custom-range-apply">Apply</button>
           </div>
         </div>
       </nav>

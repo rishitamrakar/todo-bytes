@@ -219,29 +219,49 @@ function buildListItem(project) {
 
 // ---------- render: top-bar chips ----------
 
+const DUE_LABELS = {
+  today: 'Today',
+  tomorrow: 'Tomorrow',
+  week: 'This week',
+  'next-week': 'Next week',
+  overdue: 'Overdue',
+  'no-due': 'No due',
+};
+
 function renderViewTabs() {
-  renderDateChips();
+  renderDueChip();
   renderTaskStatusChip();
   renderQuickAddVisibility();
 }
 
-function renderDateChips() {
-  document.querySelectorAll('.view-tab').forEach(chip => {
-    chip.classList.toggle('active', chip.dataset.due === state.activeDue);
+function renderDueChip() {
+  const btn = document.getElementById('due-filter-btn');
+  const label = document.getElementById('due-chip-label');
+  if (state.activeDue === null) {
+    btn.classList.remove('active');
+    label.textContent = 'Due';
+  } else if (state.activeDue === 'custom' && state.customRange.from && state.customRange.to) {
+    btn.classList.add('active');
+    label.textContent = `Due: ${formatCustomRangeLabel(state.customRange.from, state.customRange.to)}`;
+  } else {
+    btn.classList.add('active');
+    label.textContent = `Due: ${DUE_LABELS[state.activeDue] || state.activeDue}`;
+  }
+  // Highlight the matching option in the dropdown
+  document.querySelectorAll('.due-option').forEach(opt => {
+    const matches = (opt.dataset.due || null) === state.activeDue;
+    opt.classList.toggle('active', matches);
   });
-  document.getElementById('custom-range-label').textContent =
-    state.activeDue === 'custom' && state.customRange.from && state.customRange.to
-      ? formatCustomRangeLabel(state.customRange.from, state.customRange.to)
-      : 'Custom…';
 }
 
 function renderTaskStatusChip() {
   const btn = document.getElementById('task-status-btn');
+  const label = document.getElementById('task-status-chip-label');
   const total = ALL_STATUS_VALUES.length;
   const picked = state.activeTaskStatuses.size;
   const isFiltered = picked > 0 && picked < total;
   btn.classList.toggle('active', isFiltered);
-  btn.firstChild.textContent = isFiltered ? `Status (${picked}/${total}) ` : 'Status ';
+  label.textContent = isFiltered ? `Status (${picked}/${total})` : 'Status';
 }
 
 function renderQuickAddVisibility() {
@@ -438,12 +458,14 @@ function switchToAllProjects() {
   refreshTasks();
 }
 
-function setDueFilter(due) {
-  // Toggle behaviour: clicking the active chip deactivates it (back to no date filter).
-  state.activeDue = state.activeDue === due ? null : due;
+function pickDueOption(due) {
+  // Single-select. Empty string ('Any') maps to null (no filter). Picks apply
+  // immediately and close the dropdown.
+  state.activeDue = due === '' ? null : due;
   if (state.activeDue !== 'custom') {
     state.customRange = { from: null, to: null };
   }
+  closeAllTopBarPanels();
   renderViewTabs();
   refreshTasks();
 }
@@ -502,19 +524,18 @@ function handleTaskStatusDblClick(event) {
   syncTaskStatusCheckboxes();
 }
 
-// ---------- top-bar custom date range popover ----------
+// ---------- Due filter dropdown ----------
 
-function openCustomRangePopover() {
+function openDueFilterPanel() {
   closeAllTopBarPanels();
-  const popover = document.getElementById('custom-range-popover');
   document.getElementById('custom-range-from').value = state.customRange.from || '';
   document.getElementById('custom-range-to').value = state.customRange.to || '';
-  popover.hidden = false;
+  document.getElementById('due-filter-panel').hidden = false;
 }
 
-function toggleCustomRangePopover() {
-  const popover = document.getElementById('custom-range-popover');
-  if (popover.hidden) openCustomRangePopover();
+function toggleDueFilterPanel() {
+  const panel = document.getElementById('due-filter-panel');
+  if (panel.hidden) openDueFilterPanel();
   else closeAllTopBarPanels();
 }
 
@@ -527,14 +548,14 @@ function applyCustomRange() {
   }
   state.customRange = { from, to };
   state.activeDue = 'custom';
-  document.getElementById('custom-range-popover').hidden = true;
+  closeAllTopBarPanels();
   renderViewTabs();
   refreshTasks();
 }
 
 function closeAllTopBarPanels() {
   document.getElementById('task-status-filter').hidden = true;
-  document.getElementById('custom-range-popover').hidden = true;
+  document.getElementById('due-filter-panel').hidden = true;
   state.pending.taskStatuses = null;
 }
 
@@ -956,24 +977,18 @@ function toggleTheme() {
 applyTheme(resolveInitialTheme());
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Top-bar date chips. Custom is special: opens a popover instead of
-  // immediately applying.
-  document.querySelectorAll('.view-tab').forEach(chip => {
-    chip.addEventListener('click', () => {
-      const due = chip.dataset.due;
-      if (due === 'custom') toggleCustomRangePopover();
-      else setDueFilter(due);
-    });
+  // Top-bar Due dropdown (single-select)
+  document.getElementById('due-filter-btn').addEventListener('click', toggleDueFilterPanel);
+  document.querySelectorAll('.due-option').forEach(opt => {
+    opt.addEventListener('click', () => pickDueOption(opt.dataset.due));
   });
+  document.getElementById('custom-range-apply').addEventListener('click', applyCustomRange);
 
   // Top-bar task status multiselect
   document.getElementById('task-status-btn').addEventListener('click', toggleTaskStatusPanel);
   document.getElementById('task-status-filter').addEventListener('change', handleTaskStatusCheckboxChange);
   document.getElementById('task-status-filter').addEventListener('click', handleTaskStatusAction);
   document.getElementById('task-status-filter').addEventListener('dblclick', handleTaskStatusDblClick);
-
-  // Custom date range popover
-  document.getElementById('custom-range-apply').addEventListener('click', applyCustomRange);
 
   // Task modal
   document.getElementById('modal-cancel').addEventListener('click', () => hideModal('task-modal'));

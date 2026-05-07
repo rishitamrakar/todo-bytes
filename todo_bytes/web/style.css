@@ -223,27 +223,17 @@ body {
   font-weight: 600;
 }
 
-/* Top bar: date chips on the left, task-status filter chip on the right.
-   The two filter panels (status multiselect + custom date range popover)
-   anchor below the nav and span the full width. */
+/* Top bar: Due dropdown + Status dropdown, side-by-side on the left.
+   Both panels anchor below the nav as floating popovers. */
 .views {
   display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
+  gap: 6px;
   align-items: center;
   margin-bottom: 12px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 8px;
   position: relative;
 }
-
-.date-chips {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.views-spacer { flex: 1; }
 
 .views .filter-chip {
   flex: 0 0 auto;
@@ -254,17 +244,40 @@ body {
 .views .filter-panel {
   position: absolute;
   top: 100%;
-  right: 0;
+  left: 0;
   z-index: 10;
   min-width: 220px;
   margin-top: 4px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
-#custom-range-popover {
-  left: auto;
-  right: 0;
-  min-width: 260px;
+#task-status-filter { left: auto; }  /* anchors under the Status chip via JS-set offset — fall back to top:100% above */
+
+/* Due dropdown options — menu-style click items */
+.due-option {
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+.due-option:hover { background: var(--row-hover); }
+.due-option.active {
+  background: var(--accent);
+  color: white;
+}
+
+.due-custom {
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .view-tab {
