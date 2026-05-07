@@ -272,12 +272,14 @@ function renderTaskStatusChip() {
 }
 
 function renderQuickAddVisibility() {
-  // Quick-add + drag-reorder only when no date filter is active and we're on a single project.
-  const noDateFilter = state.activeDue === null;
   const isSingleProject = state.activeProject !== ALL_PROJECTS;
-  const allowEditing = noDateFilter && isSingleProject;
-  document.getElementById('reorder-hint').hidden = !allowEditing;
-  document.getElementById('quick-add-trigger').hidden = !allowEditing;
+  const noDateFilter = state.activeDue === null;
+  // Add task is allowed on any single-project view — the side panel lets you
+  // pick the due date, so an active date filter doesn't matter.
+  document.getElementById('quick-add-trigger').hidden = !isSingleProject;
+  // Drag-reorder only makes sense on the unfiltered list (priority is
+  // global, not per-filter), so the hint stays gated on "no date filter".
+  document.getElementById('reorder-hint').hidden = !(isSingleProject && noDateFilter);
 }
 
 function formatCustomRangeLabel(fromIso, toIso) {
@@ -408,6 +410,15 @@ async function refreshProjects() {
 
 async function refreshTasks() {
   if (!state.activeProject) return;
+  // Empty status filter → user actively deselected everything; show nothing.
+  // (Sending an empty list to the backend is treated as "no filter", which
+  // would surface ALL tasks — the opposite of what the user asked for.)
+  if (state.activeTaskStatuses.size === 0) {
+    state.tasks = [];
+    renderTasks();
+    renderStats();
+    return;
+  }
   if (state.activeProject === ALL_PROJECTS) {
     state.tasks = await fetchAllVisibleTasks();
   } else {
@@ -415,6 +426,7 @@ async function refreshTasks() {
     state.tasks = data.tasks;
   }
   renderTasks();
+  renderStats();  // stats reflect the visible tasks, so re-render after fetch
 }
 
 function currentTaskFilters() {
@@ -1030,23 +1042,29 @@ function combineDateTimeToIso(dateStr, timeStr) {
 }
 
 // Update the stats card in the side pane.
-// In single-project view: stats for that project.
-// In All view: combined stats across all visible projects.
+// Stats reflect the *currently visible* task list — so date/status
+// filters are honored. The project sidebar count (e.g. 3/7) shows the
+// project-wide totals separately, so users still see the big picture.
 function renderStats() {
-  let open = 0, done = 0;
-  if (state.activeProject === ALL_PROJECTS) {
-    visibleProjects().forEach(p => { open += p.open || 0; done += p.done || 0; });
-  } else {
-    const summary = state.projects.find(l => l.name === state.activeProject);
-    open = summary ? summary.open : 0;
-    done = summary ? summary.done : 0;
-  }
+  const { open, done } = countOpenDone(state.tasks);
   const total = open + done;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   document.getElementById('stat-open').textContent = open;
   document.getElementById('stat-done').textContent = done;
   document.getElementById('stat-pct').textContent = pct + '%';
   document.getElementById('progress-fill').style.width = pct + '%';
+}
+
+function countOpenDone(tasks) {
+  // Mirrors backend project_summary: only todo + in-progress count as open;
+  // done counts as done; hold + cancelled are excluded from both, so they
+  // don't drag the completion percentage down.
+  let open = 0, done = 0;
+  for (const t of tasks) {
+    if (t.status === 'done') done++;
+    else if (t.status === 'todo' || t.status === 'in-progress') open++;
+  }
+  return { open, done };
 }
 
 
