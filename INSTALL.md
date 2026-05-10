@@ -3,27 +3,36 @@
 ## Requirements
 
 - Python 3.11 or newer
-- [`pipx`](https://pipx.pypa.io/stable/) (recommended) — installs the `todo` command globally without polluting your system Python.
+- An installer that isolates the `todo` command from your system Python. Pick one:
+  - [`uv`](https://docs.astral.sh/uv/) (recommended — fast, can run tools without installing)
+  - [`pipx`](https://pipx.pypa.io/stable/) (classic, widely used)
 
-If you don't have pipx:
+If you don't have either:
 ```bash
-brew install pipx
-pipx ensurepath
+brew install uv         # or: brew install pipx && pipx ensurepath
 ```
 
 ## Install from the repo
 
-### CLI only (recommended for most users)
+Both installers work the same way — pick whichever you have.
+
+### With uv (recommended)
 
 ```bash
-pipx install git+https://github.com/rishitamrakar/todo-bytes.git
+# CLI only
+uv tool install git+https://github.com/rishitamrakar/todo-bytes.git
+
+# CLI + Web UI (FastAPI + uvicorn)
+uv tool install 'todo-bytes[ui] @ git+https://github.com/rishitamrakar/todo-bytes.git'
 ```
 
-### CLI + Web UI
-
-The web UI needs FastAPI and uvicorn. Install with the `[ui]` extras:
+### With pipx
 
 ```bash
+# CLI only
+pipx install git+https://github.com/rishitamrakar/todo-bytes.git
+
+# CLI + Web UI (FastAPI + uvicorn)
 pipx install 'todo-bytes[ui] @ git+https://github.com/rishitamrakar/todo-bytes.git'
 ```
 
@@ -31,7 +40,16 @@ pipx install 'todo-bytes[ui] @ git+https://github.com/rishitamrakar/todo-bytes.g
 
 ```bash
 cd /path/to/todo-bytes
-pipx install '.[ui]'        # or just `pipx install .` for CLI only
+uv tool install '.[ui]'      # or: pipx install '.[ui]'
+```
+
+### Try without installing (uv only)
+
+`uvx` runs the tool in a temporary environment — nothing gets installed permanently.
+
+```bash
+uvx --from git+https://github.com/rishitamrakar/todo-bytes.git todo --help
+uvx --from git+https://github.com/rishitamrakar/todo-bytes.git todo list
 ```
 
 ### Verify
@@ -90,10 +108,11 @@ Three separate places. Each has one job and is independent of the others.
 ### 1. Code (the `todo` command itself)
 
 ```
-~/.local/pipx/venvs/todo-bytes/
+~/.local/share/uv/tools/todo-bytes/    # if installed with uv
+~/.local/pipx/venvs/todo-bytes/        # if installed with pipx
 ```
 
-This is managed by `pipx`. You never touch it directly. It contains the installed Python package plus all its dependencies (typer, pyyaml, rich, ...). Each pipx-installed tool lives in its own venv so dependencies never clash.
+This is managed by your installer (uv or pipx). You never touch it directly. It contains the installed Python package plus all its dependencies (typer, pyyaml, rich, ...). Each tool lives in its own isolated environment so dependencies never clash.
 
 ### 2. Global config
 
@@ -136,19 +155,31 @@ This is **your data**. Plain text. Hand-editable. Git-friendly. Put `data_dir` i
 
 ## Upgrading to the latest version
 
+Both installers re-pull from git on upgrade. Your tasks and config are **not** touched.
+
+### With uv
+
+```bash
+uv tool upgrade todo-bytes
+```
+
+### With pipx
+
 For pipx git installs, plain `pipx upgrade` does not re-pull from git. Use `reinstall` instead:
 
 ```bash
 pipx reinstall todo-bytes
 ```
 
-This re-runs the install from the original git URL, so it pulls the latest `main`. Your tasks and config are **not** touched.
+### If upgrade fails — force install over the top
 
-If `reinstall` fails for any reason, force-install over the top (use the `[ui]` form if you want the web UI):
+Use the `[ui]` form if you want the web UI:
 
 ```bash
-pipx install --force git+https://github.com/rishitamrakar/todo-bytes.git
-# or with web UI:
+# uv
+uv tool install --force 'todo-bytes[ui] @ git+https://github.com/rishitamrakar/todo-bytes.git'
+
+# pipx
 pipx install --force 'todo-bytes[ui] @ git+https://github.com/rishitamrakar/todo-bytes.git'
 ```
 
@@ -162,13 +193,18 @@ todo list              # your existing tasks should still be there
 ### Try a feature branch before it's merged
 
 ```bash
+# uv
+uv tool install --force 'git+https://github.com/rishitamrakar/todo-bytes.git@<branch-name>'
+
+# pipx
 pipx install --force git+https://github.com/rishitamrakar/todo-bytes.git@<branch-name>
 ```
 
 ## Uninstall
 
 ```bash
-pipx uninstall todo-bytes
+uv tool uninstall todo-bytes        # if installed with uv
+pipx uninstall todo-bytes           # if installed with pipx
 ```
 
 Your data dir and config file are not touched. Remove them manually if you want a clean slate:
@@ -178,6 +214,19 @@ rm -rf ~/my-todos       # only if you used the default
 ```
 
 ## Dev install (for hacking on the source)
+
+### With uv (recommended — faster)
+
+```bash
+git clone https://github.com/rishitamrakar/todo-bytes.git
+cd todo-bytes
+uv venv
+source .venv/bin/activate
+uv pip install -e ".[dev,ui]"
+todo version
+```
+
+### With plain pip
 
 ```bash
 git clone https://github.com/rishitamrakar/todo-bytes.git
