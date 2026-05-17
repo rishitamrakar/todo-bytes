@@ -823,3 +823,74 @@ def test_projects_show_json_includes_default_marker(ready_to_use: Path, runner: 
     assert payload["default"] == "work"
     names = {p["name"] for p in payload["projects"]}
     assert names == {"work", "side"}
+
+
+# ---------- projects show <name> single project detail ----------
+
+def test_projects_show_single_renders_details(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, [
+        "projects", "edit", "work",
+        "--description", "Day job",
+        "--status", "in-progress",
+    ])
+    result = runner.invoke(app, ["projects", "show", "work"])
+    assert result.exit_code == 0
+    assert "Day job" in result.stdout
+    assert "in-progress" in result.stdout
+
+
+def test_projects_show_single_json_returns_full_summary(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["projects", "edit", "work", "--description", "Day job"])
+    runner.invoke(app, ["add", "one"])
+    runner.invoke(app, ["add", "two"])
+    runner.invoke(app, ["done", "1"])
+    result = runner.invoke(app, ["projects", "show", "work", "--json"])
+    assert result.exit_code == 0
+    summary = json.loads(result.stdout)
+    assert summary["name"] == "work"
+    assert summary["description"] == "Day job"
+    assert summary["open"] == 1
+    assert summary["done"] == 1
+    assert summary["completion_pct"] == 50
+
+
+def test_projects_show_unknown_errors(ready_to_use: Path, runner: CliRunner):
+    result = runner.invoke(app, ["projects", "show", "nope"])
+    assert result.exit_code != 0
+    assert "not found" in result.stdout.lower()
+
+
+# ---------- list --all-projects ----------
+
+def test_list_all_projects_combines_tasks(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["projects", "create", "personal"])
+    runner.invoke(app, ["add", "work task", "--project", "work"])
+    runner.invoke(app, ["add", "home task", "--project", "personal"])
+    result = runner.invoke(app, ["list", "--all-projects", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["project"] == "__all__"
+    names = {t["name"] for t in payload["tasks"]}
+    assert names == {"work task", "home task"}
+
+
+def test_list_all_projects_respects_view_filter(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["projects", "create", "personal"])
+    runner.invoke(app, ["add", "due today", "--due", "today", "--project", "work"])
+    runner.invoke(app, ["add", "due next month", "--due", "2027-06-01", "--project", "personal"])
+    result = runner.invoke(app, ["list", "--all-projects", "--today", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    names = [t["name"] for t in payload["tasks"]]
+    assert names == ["due today"]
+
+
+def test_list_all_projects_short_flag(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["projects", "create", "personal"])
+    runner.invoke(app, ["add", "a", "--project", "work"])
+    runner.invoke(app, ["add", "b", "--project", "personal"])
+    # -A is the short form of --all-projects
+    result = runner.invoke(app, ["list", "-A", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert len(payload["tasks"]) == 2

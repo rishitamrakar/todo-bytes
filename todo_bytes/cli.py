@@ -230,10 +230,18 @@ def _load_config_or_exit() -> Config:
 
 @projects_app.command("show")
 def projects_show_cmd(
+    name: Optional[str] = typer.Argument(
+        None,
+        help="Optional project name. If given, show full details for that project; "
+             "otherwise list all projects.",
+    ),
     as_json: bool = typer.Option(False, "--json", help="Output structured JSON instead of a table."),
 ):
-    """Show all projects with their task counts."""
+    """Show all projects, or full details of a single project."""
     config = _load_config_or_exit()
+    if name is not None:
+        _show_single_project(name, config, as_json)
+        return
     names = all_projects(config)
     if as_json:
         payload = [project_summary(n, config=config) for n in names]
@@ -243,6 +251,17 @@ def projects_show_cmd(
         console.print("[dim]No projects yet. Create one with [cyan]todo projects create <name>[/cyan][/dim]")
         return
     console.print(_render_projects_table(names, config))
+
+
+def _show_single_project(name: str, config: Config, as_json: bool) -> None:
+    try:
+        summary = project_summary(name, config=config)
+    except ProjectNotFoundError as err:
+        _exit_with_error(str(err))
+    if as_json:
+        _print_json(summary)
+        return
+    console.print(_render_project_details(summary, config))
 
 
 @projects_app.command("create")
@@ -638,6 +657,12 @@ def add_cmd(
 @app.command("list")
 def list_cmd(
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Which project to show. Defaults to the configured default project."),
+    all_projects_flag: bool = typer.Option(
+        False,
+        "--all-projects",
+        "-A",
+        help="Show tasks from every project (ignores --project).",
+    ),
     today: bool = typer.Option(False, "--today", help="Open tasks due today."),
     overdue: bool = typer.Option(False, "--overdue", help="Open tasks past due."),
     tomorrow: bool = typer.Option(False, "--tomorrow", help="Open tasks due tomorrow."),
@@ -651,9 +676,6 @@ def list_cmd(
 ):
     """Show tasks. Without filter flags, shows all open tasks."""
     config = _load_config_or_exit()
-    target_project = _resolve_project(project, config)
-    tasks = _load_tasks_or_exit(target_project, config)
-
     view_flags = {
         "today": today, "overdue": overdue, "tomorrow": tomorrow,
         "week": week, "next-week": next_week, "no-due": no_due,
@@ -661,6 +683,12 @@ def list_cmd(
     }
     view_name = _pick_view_or_exit(view_flags)
 
+    if all_projects_flag:
+        _list_across_all_projects(config, view_name, tag, as_json)
+        return
+
+    target_project = _resolve_project(project, config)
+    tasks = _load_tasks_or_exit(target_project, config)
     filtered = _apply_view(tasks, view_name)
     filtered = views.filter_by_tag(filtered, tag or [])
     sorted_tasks = _sort_for_view(filtered, view_name)
@@ -1005,6 +1033,61 @@ VIEW_TITLES = {
     "done": "Done (last 7 days)",
     "all": "All tasks",
 }
+
+
+def _list_across_all_projects(
+    config: Config,
+    view_name: str,
+    tag: Optional[list[str]],
+    as_json: bool,
+) -> None:
+    """Gather tasks from every project, apply the same view/tag filters, and
+    render as one combined list. Useful for 'what's on my plate today across
+    all my projects' style queries (and for LLMs asking the same thing)."""
+    names = all_projects(config)
+    combined: list[Task] = []
+    for name in names:
+        try:
+            project_tasks = load_tasks(name, config)
+        except ProjectNotFoundError:
+            continue  # vanished between listing and loading; ignore
+        filtered = _apply_view(project_tasks, view_name)
+        filtered = views.filter_by_tag(filtered, tag or [])
+        combined.extend(filtered)
+    # Sort by due date then priority — most useful order for a cross-project
+    # 'what's coming up' read.
+    combined.sort(key=lambda t: (t.due or datetime.max, t.priority))
+    if as_json:
+        _print_json({
+            "project": "__all__",
+            "view": view_name,
+            "tasks": [t.to_dict() for t in combined],
+        })
+        return
+    if not combined:
+        console.print("[dim]No matching tasks across any project.[/dim]")
+        return
+    console.print(_render_tasks_table(combined, "All projects", view_name))
+
+
+def _render_project_details(summary: dict, config: Config) -> Table:
+    """Render full project details (description / status / due / tags /
+    counts / completion %) as a key-value table."""
+    name = summary["name"]
+    is_default = " (default ★)" if name == config.default_project else ""
+    table = Table(title=f"Project: {name}{is_default}", title_style="bold", show_header=False)
+    table.add_column("Field", style="dim")
+    table.add_column("Value")
+    table.add_row("Description", summary.get("description") or "—")
+    table.add_row("Status", summary.get("status") or "todo")
+    table.add_row("Due", _format_due(summary.get("due")))
+    tags = summary.get("tags") or []
+    table.add_row("Tags", ", ".join(tags) if tags else "—")
+    table.add_row("Open", str(summary["open"]))
+    table.add_row("Done", str(summary["done"]))
+    table.add_row("Total", str(summary["total"]))
+    table.add_row("Completion", f"{summary['completion_pct']}%")
+    return table
 
 
 def _print_json(payload) -> None:
