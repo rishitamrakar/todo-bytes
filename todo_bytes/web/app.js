@@ -43,6 +43,83 @@ const ALL_PROJECTS = '__all__';
 const ALL_STATUS_VALUES = ['todo', 'in-progress', 'done', 'hold', 'cancelled'];
 
 
+// ---------- UI state persistence ----------
+//
+// Persist filter / view selections to localStorage so a page refresh (or
+// re-open) doesn't reset everything. We only save what the user *picks* —
+// never task or project data (always re-fetched from the API).
+//
+// Key is versioned so we can change the saved shape later without crashing
+// on old blobs — bump to :v2 and old state is silently ignored.
+
+const UI_STATE_KEY = 'todo-bytes:ui-state:v1';
+let uiStateLoaded = false;  // true after a successful loadUiState()
+
+function saveUiState() {
+  const snapshot = {
+    activeProject: state.activeProject,
+    activeDue: state.activeDue,
+    activeTaskStatuses: [...state.activeTaskStatuses],
+    customRange: state.customRange,
+    visibleStatuses: [...state.visibleStatuses],
+    visibleTags: [...state.visibleTags],
+    showUntagged: state.showUntagged,
+  };
+  try {
+    localStorage.setItem(UI_STATE_KEY, JSON.stringify(snapshot));
+  } catch (err) {
+    // Quota exceeded / storage disabled — not fatal, UI still works.
+    console.warn('Could not save UI state:', err);
+  }
+}
+
+function loadUiState() {
+  const raw = localStorage.getItem(UI_STATE_KEY);
+  if (!raw) return false;
+  try {
+    const s = JSON.parse(raw);
+    if (typeof s.activeProject === 'string' || s.activeProject === null) {
+      state.activeProject = s.activeProject;
+    }
+    if (s.activeDue === null || typeof s.activeDue === 'string') {
+      state.activeDue = s.activeDue;
+    }
+    if (Array.isArray(s.activeTaskStatuses)) {
+      state.activeTaskStatuses = new Set(s.activeTaskStatuses);
+    }
+    if (s.customRange && typeof s.customRange === 'object') {
+      state.customRange = {
+        from: s.customRange.from || null,
+        to: s.customRange.to || null,
+      };
+    }
+    if (Array.isArray(s.visibleStatuses)) {
+      state.visibleStatuses = new Set(s.visibleStatuses);
+    }
+    if (Array.isArray(s.visibleTags)) {
+      state.visibleTags = new Set(s.visibleTags);
+    }
+    if (typeof s.showUntagged === 'boolean') {
+      state.showUntagged = s.showUntagged;
+    }
+    uiStateLoaded = true;
+    return true;
+  } catch (err) {
+    console.warn('Bad UI state in localStorage, ignoring:', err);
+    return false;
+  }
+}
+
+// If the restored activeProject no longer exists (deleted in CLI between
+// sessions), fall back to the default project so the UI isn't stuck on a
+// dead project name.
+function validateRestoredActiveProject() {
+  if (!state.activeProject || state.activeProject === ALL_PROJECTS) return;
+  const exists = state.projects.some(p => p.name === state.activeProject);
+  if (!exists) state.activeProject = null;
+}
+
+
 // ---------- api ----------
 
 const api = {
@@ -244,9 +321,12 @@ function renderViewTabs() {
 function renderDueChip() {
   const btn = document.getElementById('due-filter-btn');
   const label = document.getElementById('due-chip-label');
+  // Always use the "Due: <value>" format so the active choice is visible at
+  // a glance — including 'Any', which means "no filter" but is still a
+  // deliberate pick the user can see.
   if (state.activeDue === null) {
     btn.classList.remove('active');
-    label.textContent = 'Due';
+    label.textContent = 'Due: Any';
   } else if (state.activeDue === 'custom' && state.customRange.from && state.customRange.to) {
     btn.classList.add('active');
     label.textContent = `Due: ${formatCustomRangeLabel(state.customRange.from, state.customRange.to)}`;
@@ -266,9 +346,19 @@ function renderTaskStatusChip() {
   const label = document.getElementById('task-status-chip-label');
   const total = ALL_STATUS_VALUES.length;
   const picked = state.activeTaskStatuses.size;
-  const isFiltered = picked > 0 && picked < total;
-  btn.classList.toggle('active', isFiltered);
-  label.textContent = isFiltered ? `Status (${picked}/${total})` : 'Status';
+  // Always show the active selection — 'All' / 'None' / 'N of 5' — so the
+  // chip reads as a value, not a label. Active style only when the picks
+  // actually filter the task list (i.e. not 'All').
+  if (picked === total) {
+    btn.classList.remove('active');
+    label.textContent = 'Status: All';
+  } else if (picked === 0) {
+    btn.classList.add('active');
+    label.textContent = 'Status: None';
+  } else {
+    btn.classList.add('active');
+    label.textContent = `Status: ${picked} of ${total}`;
+  }
 }
 
 function renderQuickAddVisibility() {
@@ -297,19 +387,120 @@ function formatCustomRangeLabel(fromIso, toIso) {
 // ---------- render: tasks list ----------
 
 function renderTasks() {
-  const ul = document.getElementById('tasks');
+  const container = document.getElementById('tasks');
   const empty = document.getElementById('empty-state');
-  ul.innerHTML = '';
-  if (state.tasks.length === 0) {
+  container.innerHTML = '';
+
+  const tasks = visibleTasks();
+  if (tasks.length === 0) {
     empty.hidden = false;
     return;
   }
   empty.hidden = true;
-  state.tasks.forEach(task => ul.appendChild(buildTaskRow(task)));
-  // Drag-reorder only makes sense within a single project with no date filter.
-  if (state.activeDue === null && state.activeProject !== ALL_PROJECTS) {
+
+  // Grouped view when no specific due filter is picked. With a specific
+  // filter (Today, This week, etc.) the section IS the filter — grouping
+  // would just add a single-section wrapper, which is noise.
+  if (state.activeDue === null) {
+    renderGroupedTasks(container, tasks);
+  } else {
+    renderFlatTasks(container, tasks);
+  }
+}
+
+function renderFlatTasks(container, tasks) {
+  const ul = buildTaskList(tasks);
+  container.appendChild(ul);
+  // Drag-reorder is single-project only — priority is per-project.
+  if (state.activeProject !== ALL_PROJECTS) {
     enableDragReorder(ul);
   }
+}
+
+function renderGroupedTasks(container, tasks) {
+  const groups = groupTasksByDue(tasks);
+  groups.forEach(g => container.appendChild(buildTaskSection(g)));
+}
+
+function buildTaskList(tasks) {
+  const ul = document.createElement('ul');
+  ul.className = 'tasks';
+  tasks.forEach(t => ul.appendChild(buildTaskRow(t)));
+  return ul;
+}
+
+function buildTaskSection(group) {
+  const sec = document.createElement('section');
+  sec.className = 'task-section';
+
+  const header = document.createElement('div');
+  header.className = 'section-header';
+  header.innerHTML = `
+    <span class="section-title ${group.cssClass}">${escape(group.label)}</span>
+    <span class="section-count">${group.tasks.length}</span>
+    <span class="section-divider"></span>
+  `;
+  sec.appendChild(header);
+
+  const ul = buildTaskList(group.tasks);
+  sec.appendChild(ul);
+
+  // Within-section drag updates global priority but only reorders tasks
+  // inside this section. Not available in All Projects (priority is per
+  // project, can't span them).
+  if (state.activeProject !== ALL_PROJECTS) {
+    enableDragReorder(ul);
+  }
+  return sec;
+}
+
+// Buckets tasks into Overdue / Today / Tomorrow / This week / Later /
+// No due date. Tasks land in exactly one bucket based on their due date,
+// regardless of status (done tasks stay in their date bucket, rendered
+// with strikethrough by existing CSS).
+function groupTasksByDue(tasks) {
+  const today = startOfDay(new Date());
+  const tomorrow = addDays(today, 1);
+  const weekEnd = addDays(today, 7);
+
+  const buckets = {
+    overdue:  { label: 'Overdue',     cssClass: 'overdue', tasks: [] },
+    today:    { label: 'Today',       cssClass: 'today',   tasks: [] },
+    tomorrow: { label: 'Tomorrow',    cssClass: '',        tasks: [] },
+    week:     { label: 'This week',   cssClass: '',        tasks: [] },
+    later:    { label: 'Later',       cssClass: '',        tasks: [] },
+    nodue:    { label: 'No due date', cssClass: '',        tasks: [] },
+  };
+
+  for (const t of tasks) {
+    bucketForTask(t, today, tomorrow, weekEnd, buckets).tasks.push(t);
+  }
+
+  return ['overdue','today','tomorrow','week','later','nodue']
+    .map(k => buckets[k])
+    .filter(b => b.tasks.length > 0);
+}
+
+function bucketForTask(task, today, tomorrow, weekEnd, buckets) {
+  if (!task.due) return buckets.nodue;
+  const due = startOfDay(new Date(task.due));
+  if (due < today) return buckets.overdue;
+  if (due.getTime() === today.getTime()) return buckets.today;
+  if (due.getTime() === tomorrow.getTime()) return buckets.tomorrow;
+  if (due < weekEnd) return buckets.week;
+  return buckets.later;
+}
+
+function startOfDay(d) {
+  const out = new Date(d);
+  out.setHours(0, 0, 0, 0);
+  return out;
+}
+
+function addDays(d, n) {
+  const out = new Date(d);
+  out.setDate(out.getDate() + n);
+  return out;
 }
 
 function buildTaskRow(task) {
@@ -320,16 +511,26 @@ function buildTaskRow(task) {
   // In a single-project view, the project is implicit — hide the badge.
   const showProjectBadge = state.activeProject === ALL_PROJECTS;
   const hasContent = (task.description && task.description.trim()) || (task.notes && task.notes.trim());
+  const tagsHtml = (task.tags || [])
+    .map(t => `<span class="tag tag-${tagColorClass(t)}">${escape(t)}</span>`)
+    .join('');
+  const projectBadgeHtml = showProjectBadge && task.project
+    ? `<span class="project-badge">${escape(task.project)}</span>`
+    : '';
   li.innerHTML = `
     <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
     <button class="status-circle" data-action="toggle-done" title="${statusTitle(task.status)}"></button>
-    <span class="task-name">
-      ${escape(task.name)}
-      ${hasContent ? '<span class="has-content" title="Has description / notes" data-action="edit">📄</span>' : ''}
-    </span>
+    <div class="task-main">
+      <span class="task-name">
+        ${escape(task.name)}
+        ${hasContent ? '<span class="has-content" title="Has description / notes" data-action="edit">📄</span>' : ''}
+      </span>
+      <div class="task-meta">
+        ${tagsHtml ? `<span class="tags">${tagsHtml}</span>` : ''}
+        ${projectBadgeHtml}
+      </div>
+    </div>
     <span class="due ${dueClass(task.due)}">${formatDue(task.due)}</span>
-    <span class="tags">${(task.tags || []).map(t => `<span class="tag">${escape(t)}</span>`).join('')}</span>
-    <span>${showProjectBadge && task.project ? `<span class="project-badge">${escape(task.project)}</span>` : ''}</span>
     <span class="actions">
       <button class="icon-btn" data-action="edit" title="Edit">✎</button>
       <button class="icon-btn danger" data-action="delete" title="Delete">✕</button>
@@ -337,6 +538,18 @@ function buildTaskRow(task) {
   `;
   wireTaskRowEvents(li, task);
   return li;
+}
+
+// Pick a tag colour deterministically from the tag string. Same tag name
+// always gets the same colour — stable across reloads, no state to store.
+// Purely cosmetic: no semantic meaning attached to the colours.
+function tagColorClass(tag) {
+  const palette = ['purple', 'blue', 'green', 'pink'];
+  let hash = 0;
+  for (let i = 0; i < tag.length; i++) {
+    hash = ((hash << 5) - hash + tag.charCodeAt(i)) | 0;
+  }
+  return palette[Math.abs(hash) % palette.length];
 }
 
 function statusTitle(status) {
@@ -371,6 +584,15 @@ function handleTaskAction(action, task) {
 
 
 // ---------- drag-reorder ----------
+//
+// Each <ul class="tasks"> is its own Sortable instance. In flat view this is
+// the entire task list; in grouped view there's one per section.
+//
+// Priority is a single global integer per task. A drag within a section only
+// reorders tasks in that section relative to each other — tasks in other
+// sections keep their priority positions. We achieve that by merging the
+// section's new order back into the full project order before sending it
+// to the server.
 
 function enableDragReorder(ul) {
   Sortable.create(ul, {
@@ -381,13 +603,36 @@ function enableDragReorder(ul) {
 }
 
 async function persistNewOrder(ul) {
-  const ids = Array.from(ul.children).map(li => Number(li.dataset.taskId));
+  const sectionIds = Array.from(ul.children).map(li => Number(li.dataset.taskId));
+  const fullIds = mergeSectionIntoGlobalOrder(sectionIds);
   try {
-    await api.reorder(state.activeProject, ids);
+    await api.reorder(state.activeProject, fullIds);
+    // Keep state.tasks aligned with the new global priority order so the
+    // next drag (in another section) sees the right baseline without an
+    // extra fetch. Task objects' .priority field isn't read for rendering
+    // in single-project view, so leaving it stale is fine.
+    state.tasks = reorderTasksByIds(state.tasks, fullIds);
   } catch (err) {
     alert('Reorder failed: ' + err.message);
     await refreshTasks();
   }
+}
+
+// Walk the current global priority order. Whenever we hit a task that's
+// part of the dragged section, replace it with the next ID from the new
+// section order. Tasks outside the section keep their positions.
+function mergeSectionIntoGlobalOrder(newSectionOrder) {
+  const inSection = new Set(newSectionOrder);
+  let cursor = 0;
+  return state.tasks.map(t => {
+    if (inSection.has(t.id)) return newSectionOrder[cursor++];
+    return t.id;
+  });
+}
+
+function reorderTasksByIds(tasks, ids) {
+  const byId = new Map(tasks.map(t => [t.id, t]));
+  return ids.map(id => byId.get(id)).filter(Boolean);
 }
 
 
@@ -397,8 +642,13 @@ async function refreshProjects() {
   const data = await api.getProjects();
   state.projects = data.projects;
   state.defaultProject = data.default;
-  // Auto-include any tags discovered on existing projects
-  collectAllTags().forEach(t => state.visibleTags.add(t));
+  // Auto-include all discovered tags on first ever load (no saved state).
+  // Once we have saved state, respect it — re-adding everything would undo
+  // any tag the user explicitly removed via the filter panel.
+  if (!uiStateLoaded) {
+    collectAllTags().forEach(t => state.visibleTags.add(t));
+  }
+  validateRestoredActiveProject();
   if (!state.activeProject && state.projects.length > 0) {
     state.activeProject = state.defaultProject || state.projects[0].name;
   }
@@ -410,15 +660,9 @@ async function refreshProjects() {
 
 async function refreshTasks() {
   if (!state.activeProject) return;
-  // Empty status filter → user actively deselected everything; show nothing.
-  // (Sending an empty list to the backend is treated as "no filter", which
-  // would surface ALL tasks — the opposite of what the user asked for.)
-  if (state.activeTaskStatuses.size === 0) {
-    state.tasks = [];
-    renderTasks();
-    renderStats();
-    return;
-  }
+  // We always fetch with the status filter OFF — only the due filter goes
+  // to the server. The status filter is applied client-side in renderTasks()
+  // so it controls what's *shown* but not what counts toward progress.
   if (state.activeProject === ALL_PROJECTS) {
     state.tasks = await fetchAllVisibleTasks();
   } else {
@@ -426,11 +670,13 @@ async function refreshTasks() {
     state.tasks = data.tasks;
   }
   renderTasks();
-  renderStats();  // stats reflect the visible tasks, so re-render after fetch
+  renderStats();
 }
 
 function currentTaskFilters() {
-  const filters = { statuses: Array.from(state.activeTaskStatuses) };
+  // Status filter is applied client-side (see renderTasks / visibleTasks).
+  // Only the due filter is sent to the server.
+  const filters = {};
   if (state.activeDue) {
     filters.due = state.activeDue;
     if (state.activeDue === 'custom') {
@@ -439,6 +685,10 @@ function currentTaskFilters() {
     }
   }
   return filters;
+}
+
+function visibleTasks() {
+  return state.tasks.filter(t => state.activeTaskStatuses.has(t.status));
 }
 
 async function fetchAllVisibleTasks() {
@@ -461,6 +711,7 @@ async function fetchAllVisibleTasks() {
 
 function switchProject(name) {
   state.activeProject = name;
+  saveUiState();
   renderProjectsNav();
   renderViewTabs();
   updateProjectTitle();
@@ -470,6 +721,7 @@ function switchProject(name) {
 
 function switchToAllProjects() {
   state.activeProject = ALL_PROJECTS;
+  saveUiState();
   renderProjectsNav();
   renderViewTabs();
   updateProjectTitle();
@@ -484,6 +736,7 @@ function pickDueOption(due) {
   if (state.activeDue !== 'custom') {
     state.customRange = { from: null, to: null };
   }
+  saveUiState();
   closeAllTopBarPanels();
   renderViewTabs();
   refreshTasks();
@@ -493,9 +746,12 @@ function applyTaskStatusFilter() {
   if (state.pending.taskStatuses === null) return;
   state.activeTaskStatuses = state.pending.taskStatuses;
   state.pending.taskStatuses = null;
+  saveUiState();
   document.getElementById('task-status-filter').hidden = true;
   renderViewTabs();
-  refreshTasks();
+  // Status filter is purely client-side now — just re-render the list,
+  // no server round-trip needed. Stats stay put (by design).
+  renderTasks();
 }
 
 function openTaskStatusPanel() {
@@ -567,6 +823,7 @@ function applyCustomRange() {
   }
   state.customRange = { from, to };
   state.activeDue = 'custom';
+  saveUiState();
   closeAllTopBarPanels();
   renderViewTabs();
   refreshTasks();
@@ -731,6 +988,7 @@ function applyFilter(target) {
     state.visibleTags = state.pending.tags;
     state.showUntagged = state.pending.showUntagged;
   }
+  saveUiState();
   closeAllFilterPanels();
   renderProjectsNav();
   // If the active project is now filtered out, fall back to All Projects view
@@ -1042,9 +1300,11 @@ function combineDateTimeToIso(dateStr, timeStr) {
 }
 
 // Update the stats card in the side pane.
-// Stats reflect the *currently visible* task list — so date/status
-// filters are honored. The project sidebar count (e.g. 3/7) shows the
-// project-wide totals separately, so users still see the big picture.
+// Progress reflects the due-filtered task set but IGNORES the status filter.
+// Reasoning: due filter is "what slice of work I'm focusing on" (today /
+// this week / overdue) — progress on that slice is useful. Status filter
+// is just visibility (hide done from the list) — it shouldn't change the
+// completion %, otherwise hiding done would always read as 0% done.
 function renderStats() {
   const { open, done } = countOpenDone(state.tasks);
   const total = open + done;
@@ -1155,6 +1415,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('project-cancel').addEventListener('click', () => hideModal('project-modal'));
   document.getElementById('project-form').addEventListener('submit', submitProjectForm);
   document.getElementById('project-delete').addEventListener('click', deleteActiveProject);
+
+  // Restore saved filters / selections before the first render so the UI
+  // boots in the user's last view instead of defaults.
+  loadUiState();
 
   renderViewTabs();
   await refreshProjects();

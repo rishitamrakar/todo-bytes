@@ -11,11 +11,13 @@
   <div class="app">
     <aside class="sidebar">
       <div class="sidebar-header">
-        <svg class="app-logo" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M 20 12 L 10 12 L 10 52 L 20 52" />
-          <path d="M 44 12 L 54 12 L 54 52 L 44 52" />
-          <path d="M 22 33 L 29 41 L 44 24" stroke="var(--accent)" />
-        </svg>
+        <div class="app-logo-chip" aria-hidden="true">
+          <svg class="app-logo" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M 20 12 L 10 12 L 10 52 L 20 52" />
+            <path d="M 44 12 L 54 12 L 54 52 L 44 52" />
+            <path d="M 22 33 L 29 41 L 44 24" />
+          </svg>
+        </div>
         <h1>todo-bytes</h1>
         <button id="theme-toggle" class="theme-toggle" type="button" title="Toggle theme" aria-label="Toggle theme">☾</button>
       </div>
@@ -131,7 +133,7 @@
       <div class="main-body">
         <section class="tasks-pane">
           <div class="hint" id="reorder-hint">
-            Drag rows to reorder priority. Top of list = highest priority.
+            Drag rows to set priority. In grouped view, drag within a section.
           </div>
 
           <button type="button" class="quick-add" id="quick-add-trigger">
@@ -139,7 +141,7 @@
             <span class="quick-add-label">Add task</span>
           </button>
 
-          <ul class="tasks" id="tasks"></ul>
+          <div class="tasks-container" id="tasks"></div>
 
           <div class="empty-state" id="empty-state" hidden>
             <p>Nothing here yet.</p>
@@ -159,8 +161,9 @@
             </div>
           </div>
 
-          <div class="side-placeholder">
-            <p>More widgets coming soon — charts, tag breakdown, weekly trend.</p>
+          <div class="quick-tip">
+            <strong>Tip:</strong> Use the <code>todo</code> CLI to add tasks from your terminal
+            — perfect for AI agents.
           </div>
         </aside>
       </div>
