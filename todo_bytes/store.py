@@ -371,6 +371,15 @@ def _write_project_file(path: Path, project: Project, tasks: list[Task]) -> None
         "tasks": [t.to_dict() for t in tasks],
     }
     path.write_text(yaml.safe_dump(payload, sort_keys=False, default_flow_style=False))
+    # If the user has set up sync (todo sync setup), refresh the ICS feed
+    # so Google Calendar / Apple Calendar picks it up on the next poll.
+    # Best-effort — see ics.auto_export_if_configured() for failure model.
+    from todo_bytes import config as cfg, ics
+    try:
+        current_config = cfg.load_config()
+    except FileNotFoundError:
+        return  # no config = nothing to sync
+    ics.auto_export_if_configured(current_config)
 
 
 # Keep legacy ALLOWED_UPDATE_FIELDS name working

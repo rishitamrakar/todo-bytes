@@ -60,6 +60,25 @@ todo skill install              # installs to ~/.agents/skills/todo-bytes/
 
 Your agent can now manage tasks for you using the `todo` CLI.
 
+## Sync to Google Calendar
+
+```bash
+todo sync setup                 # one-time wizard, takes ~1 minute
+```
+
+The wizard walks you through three things:
+
+1. Picks where to write your `tasks.ics` (defaults to your Google Drive folder)
+2. Tells you exactly how to share the file on Drive and gives you the URL to paste
+3. Saves the config so every future task save auto-updates the file
+
+After that, your tasks show up in Google Calendar (and Apple Calendar, or anything that reads iCalendar URLs) with reminders at due times. One-way sync — todo-bytes is the source of truth.
+
+Gotchas worth knowing:
+- Needs the **[Google Drive desktop app](https://www.google.com/drive/download/)** installed for the file to actually reach the cloud
+- Google Calendar polls subscribed URLs every few hours, so changes aren't real-time — but reminders fire correctly at due times
+- To turn it off: `todo sync disable`
+
 ## Upgrade
 
 ```bash

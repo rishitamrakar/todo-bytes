@@ -50,7 +50,7 @@ from todo_bytes.config import (
 )
 from todo_bytes.dates import parse_due
 from todo_bytes.models import END_OF_DAY, STATUS_DONE, Task
-from todo_bytes import views
+from todo_bytes import ics, views
 from todo_bytes.store import (
     CURRENT_SCHEMA_VERSION,
     CannotDeleteDefaultProjectError,
@@ -83,6 +83,8 @@ projects_app = typer.Typer(help="Manage projects.", no_args_is_help=True)
 app.add_typer(projects_app, name="projects")
 skill_app = typer.Typer(help="Install the agent skill that ships with todo-bytes.", no_args_is_help=True)
 app.add_typer(skill_app, name="skill")
+sync_app = typer.Typer(help="Sync tasks to Google Calendar (one-way, read-only).", no_args_is_help=True)
+app.add_typer(sync_app, name="sync")
 
 console = Console()
 
@@ -281,6 +283,195 @@ def ui_cmd(
     console.print(f"[green]Starting UI on[/green] http://127.0.0.1:{target_port}")
     console.print("[dim]Press Ctrl+C to stop.[/dim]")
     run_server(port=target_port, open_browser=not no_browser)
+
+
+# ---------- sync (Google Calendar via Drive) ----------
+
+@sync_app.command("setup")
+def sync_setup_cmd():
+    """Walk through one-time setup to sync tasks to Google Calendar.
+
+    What this does:
+      1. Pick a path inside your Google Drive folder for tasks.ics
+      2. Write the file there (Drive desktop syncs it to the cloud)
+      3. Walk you through making the file public + getting a share link
+      4. Convert the share link to a direct-download URL automatically
+      5. Show you the exact URL to paste into Google Calendar
+      6. Save config so every future task save updates the file (auto-sync)
+    """
+    config = _load_config_or_exit()
+    _print_sync_intro()
+    target_path = _prompt_for_sync_path(config)
+    _write_initial_export(target_path, config)
+    public_url = _prompt_for_drive_share_link()
+    _persist_sync_config(config, target_path)
+    _print_subscribe_instructions(public_url)
+
+
+@sync_app.command("now")
+def sync_now_cmd(
+    to: Optional[Path] = typer.Option(
+        None,
+        "--to",
+        "-t",
+        help="Override output path. Default: the configured ics_export_path.",
+    ),
+    project: Optional[str] = typer.Option(
+        None,
+        "--project",
+        "-p",
+        help="Only export this project. Default: all projects.",
+    ),
+):
+    """Write the ICS feed now (manual sync).
+
+    Usually you don't need this — auto-sync runs on every task save after
+    `todo sync setup`. Use this to force a refresh or for one-off exports
+    to a custom path.
+    """
+    config = _load_config_or_exit()
+    output_path = to or _resolve_default_sync_path(config)
+    tasks = _collect_tasks_for_export(project, config)
+    text = ics.render_ics(tasks)
+    _write_ics_file(output_path, text)
+    _report_export(output_path, tasks)
+
+
+@sync_app.command("disable")
+def sync_disable_cmd():
+    """Turn off auto-sync. The ICS file stays where it is; we just stop updating it."""
+    config = _load_config_or_exit()
+    if not config.ics_export_path:
+        console.print("[dim]Auto-sync is already off.[/dim]")
+        return
+    old_path = config.ics_export_path
+    config.ics_export_path = None
+    save_config(config)
+    console.print(
+        f"[green]✓[/green] Auto-sync disabled. File at [cyan]{old_path}[/cyan] left in place."
+    )
+
+
+# ---------- sync internals ----------
+
+def _print_sync_intro() -> None:
+    console.print("[bold]todo-bytes → Google Calendar sync[/bold]\n")
+    console.print(
+        "This is a [dim]one-way[/dim], read-only feed. todo-bytes is the source of truth.\n"
+        "After setup, every task save auto-updates the calendar feed.\n"
+    )
+
+
+def _prompt_for_sync_path(config: Config) -> Path:
+    detected = _detect_google_drive_dir()
+    if detected:
+        default_path = detected / "tasks.ics"
+        console.print(f"[dim]Found Google Drive folder:[/dim] {detected}")
+    else:
+        default_path = Path(config.data_dir) / "tasks.ics"
+        console.print(
+            "[yellow]Couldn't auto-detect Google Drive.[/yellow] If you don't have the\n"
+            "Google Drive desktop app installed, you'll need it for auto-sync to work.\n"
+            "Install: https://www.google.com/drive/download/\n"
+        )
+    raw = typer.prompt("Where should I write tasks.ics?", default=str(default_path))
+    return Path(raw).expanduser()
+
+
+def _detect_google_drive_dir() -> Optional[Path]:
+    """Find a Google Drive folder we can write to.
+
+    Modern macOS Drive lives under ~/Library/CloudStorage/GoogleDrive-<email>/My Drive
+    Older Drive used ~/Google Drive. We try both.
+    """
+    home = Path.home()
+    cloud_storage = home / "Library" / "CloudStorage"
+    if cloud_storage.exists():
+        for entry in cloud_storage.iterdir():
+            if entry.name.startswith("GoogleDrive-"):
+                my_drive = entry / "My Drive"
+                if my_drive.exists():
+                    return my_drive
+    legacy = home / "Google Drive"
+    if legacy.exists():
+        return legacy
+    return None
+
+
+def _write_initial_export(target_path: Path, config: Config) -> None:
+    tasks = _collect_tasks_for_export(None, config)
+    text = ics.render_ics(tasks)
+    _write_ics_file(target_path, text)
+    console.print(
+        f"[green]✓[/green] Wrote [bold]{sum(1 for t in tasks if t.due)}[/bold] tasks to "
+        f"[cyan]{target_path}[/cyan]\n"
+    )
+
+
+def _prompt_for_drive_share_link() -> str:
+    console.print("[bold]Now make the file public on Google Drive:[/bold]")
+    console.print("  1. Open [link]https://drive.google.com[/link] in your browser")
+    console.print("  2. Find tasks.ics, right-click → [bold]Share[/bold]")
+    console.print("  3. Under 'General access', pick [bold]Anyone with the link[/bold] → Viewer")
+    console.print("  4. Click [bold]Copy link[/bold]\n")
+    while True:
+        share_url = typer.prompt("Paste the Drive share link here").strip()
+        file_id = ics.extract_drive_file_id(share_url)
+        if file_id:
+            return ics.drive_direct_download_url(file_id)
+        console.print(
+            "[red]✗[/red] That doesn't look like a Drive share link. "
+            "Should look like [dim]https://drive.google.com/file/d/...[/dim]\n"
+        )
+
+
+def _persist_sync_config(config: Config, target_path: Path) -> None:
+    config.ics_export_path = str(target_path)
+    save_config(config)
+    console.print("[green]✓[/green] Auto-sync enabled. Every task save will update the file.\n")
+
+
+def _print_subscribe_instructions(public_url: str) -> None:
+    console.print("[bold]Last step — subscribe in Google Calendar:[/bold]")
+    console.print("  1. Open [link]https://calendar.google.com[/link]")
+    console.print("  2. Left sidebar → [bold]Other calendars[/bold] → [bold]+[/bold] → [bold]From URL[/bold]")
+    console.print("  3. Paste this URL and click 'Add calendar':\n")
+    console.print(f"     [cyan]{public_url}[/cyan]\n")
+    console.print(
+        "[dim]Note: Google polls subscribed URLs every few hours, so changes may take "
+        "a while to appear. Reminders fire at task due times though.[/dim]"
+    )
+
+
+def _resolve_default_sync_path(config: Config) -> Path:
+    if config.ics_export_path:
+        return Path(config.ics_export_path)
+    return Path(config.data_dir) / "tasks.ics"
+
+
+def _collect_tasks_for_export(project: Optional[str], config: Config) -> list[Task]:
+    if project:
+        if not project_exists(project, config):
+            _exit_with_error(f"Project '{project}' not found.")
+        return load_tasks(project, config)
+    out: list[Task] = []
+    for name in all_projects(config):
+        out.extend(load_tasks(name, config))
+    return out
+
+
+def _write_ics_file(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+
+
+def _report_export(path: Path, tasks: list[Task]) -> None:
+    with_due = sum(1 for t in tasks if t.due is not None)
+    skipped = len(tasks) - with_due
+    msg = f"[green]✓[/green] Exported [bold]{with_due}[/bold] tasks to [cyan]{path}[/cyan]"
+    if skipped:
+        msg += f" [dim]({skipped} skipped — no due date)[/dim]"
+    console.print(msg)
 
 
 # ---------- skill install ----------
