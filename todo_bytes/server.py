@@ -189,7 +189,8 @@ def _register_task_routes(app: FastAPI) -> None:
     @app.patch("/api/tasks/{project_name}/{task_id}")
     def update_task_endpoint(project_name: str, task_id: int, payload: UpdateTaskRequest):
         fields = payload.model_dump(exclude_unset=True)
-        _manage_done_at_for_status_change(fields)
+        # done_at sync is now handled inside store.update_task so every
+        # caller (CLI, API, future MCP) gets the same behaviour.
         config = cfg.load_config()
         try:
             task = store.update_task(project_name, task_id, config=config, **fields)
@@ -252,25 +253,16 @@ def _register_reorder_route(app: FastAPI) -> None:
     @app.post("/api/projects/{project_name}/reorder")
     def reorder_tasks(project_name: str, payload: ReorderRequest):
         config = cfg.load_config()
-        tasks = _load_or_404(project_name, config)
-        _apply_new_priorities(tasks, payload.ids)
-        store.save_tasks(project_name, tasks, config)
+        try:
+            store.reorder_tasks(project_name, payload.ids, config=config)
+        except store.ProjectNotFoundError as err:
+            raise HTTPException(status_code=404, detail=str(err))
         return {"ok": True}
 
 
-def _apply_new_priorities(tasks: list, ordered_ids: list[int]) -> None:
-    """Set task.priority from the position in `ordered_ids`. Tasks not in the list keep their priority."""
-    id_to_priority = {tid: i + 1 for i, tid in enumerate(ordered_ids)}
-    for task in tasks:
-        if task.id in id_to_priority:
-            task.priority = id_to_priority[task.id]
-
-
 def _manage_done_at_for_status_change(fields: dict) -> None:
-    """If the PATCH body sets status, also keep done_at in sync.
-
-    Going to done   → set done_at to now (if not already set)
-    Going off done  → clear done_at
+    """Deprecated — done_at sync is now baked into store.update_task. Kept
+    as a no-op for any old callers/tests that may still import it.
     """
     if "status" not in fields:
         return
