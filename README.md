@@ -60,6 +60,68 @@ todo skill install              # installs to ~/.agents/skills/todo-bytes/
 
 Your agent can now manage tasks for you using the `todo` CLI.
 
+## Use with Claude Code (MCP)
+
+Lets Claude Code manage your tasks as **native tool calls** (not by shelling out and parsing tables).
+
+### Prerequisites
+
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed (you should already have it if you're reading this)
+- `todo` working in your terminal (so `todo init` is already done)
+
+### Install
+
+```bash
+# 1. Install todo-bytes with the [mcp] extra
+uv tool install --force 'todo-bytes[mcp] @ git+https://github.com/rishitamrakar/todo-bytes.git'
+
+# 2. Register with Claude Code
+claude mcp add todo-bytes -- todo-bytes-mcp
+```
+
+### Verify it works
+
+Open Claude Code and ask:
+
+> "What todo-bytes tools do you have?"
+
+Claude should list 10 tools: `add_task`, `list_tasks`, `show_task`, `mark_done`, `reopen_task`, `update_task`, `delete_task`, `move_task`, `list_projects`, `project_summary`.
+
+Then try:
+
+> "Show me everything overdue across all my projects."
+
+Claude should call `list_tasks(all_projects=true, view='overdue')` natively — you'll see the tool invocation in the Claude UI.
+
+### How it works (1-minute version)
+
+Claude Code manages the MCP server entirely:
+
+- Open Claude Code → spawns `todo-bytes-mcp` as a subprocess
+- They talk over stdin/stdout (the MCP protocol)
+- Close Claude Code → the subprocess dies with it
+
+No daemon, no port, no service to manage. The server only runs while Claude Code is open.
+
+The MCP server is a thin shim that invokes the `todo` CLI under the hood. Same code path Pi uses — if a command works in your terminal, it works for Claude too.
+
+### Troubleshooting
+
+```bash
+# What MCP servers does Claude know about?
+claude mcp list
+
+# Remove the registration
+claude mcp remove todo-bytes
+
+# Re-add it
+claude mcp add todo-bytes -- todo-bytes-mcp
+```
+
+If Claude says it has no `todo-bytes` tools after registering:
+- Restart Claude Code (it reads its MCP config on startup)
+- Check `which todo-bytes-mcp` resolves — if not, the install didn't put it on PATH. Re-run the `uv tool install` step.
+
 ## Sync to Google Calendar
 
 ```bash
