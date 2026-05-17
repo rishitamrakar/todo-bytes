@@ -24,82 +24,146 @@ A local YAML-backed todo app. Tasks live in plain YAML files, one file per proje
 
 - User says "add a task / remind me / capture this"
 - User asks "what's on my plate / what's due today / show overdue"
-- User says "mark X done / move X to in-progress"
+- User says "mark X done / reopen X / put X on hold / move X to project Y"
 - User asks "show me my projects / how am I tracking on project Y"
 - User wants a daily / weekly review
+- User wants to sync tasks to Google Calendar
 
 If the user is working in a different system (Jira, Linear, etc.), use the matching skill for that — `todo-bytes` is for personal local tasks.
 
 ## Quick reference
 
-```bash
-# Initial setup (run once, then never again)
-todo init                              # interactive: pick data dir + default project
+### Setup (run once)
 
-# Add a task to the default project
+```bash
+todo init                              # interactive: pick data dir + default project
+```
+
+### Add tasks
+
+```bash
 todo add "Write the launch post"
 todo add "Pay rent" --due tomorrow
 todo add "Call dentist" --due 2026-05-15 --tag personal --tag health
+todo add "Standup" --due "tomorrow 9am"               # natural date + time
 todo add "Fix bug" --description "Auth issue from PR #234"
+todo add "Review PR" --project work                   # specific project
+todo add "Read paper" -p reading -t research          # short flags
+```
 
-# Add to a specific project (not the default)
-todo add "Review PR" --project work
-todo add "Read paper" -p reading -t research
+### List tasks
 
-# List tasks in the default project
-todo list                              # active tasks (todo + in-progress), sorted by priority
-todo list --today                      # due today only
+```bash
+todo list                              # active tasks (todo + in-progress), default project
+todo list --today                      # due today
 todo list --overdue                    # past due, not done
 todo list --tomorrow                   # due tomorrow
 todo list --week                       # due this week
 todo list --next-week                  # due next week
 todo list --no-due                     # tasks with no due date
-todo list --done                       # completed tasks (most recent first)
+todo list --done                       # completed (last 7 days)
 todo list --all                        # everything regardless of status
 
-# Filters compose with views
-todo list --today --tag work           # today's work tasks
-todo list --overdue --tag urgent
-todo list --project personal --week    # this week in 'personal' project
+# Cross-project (NEW)
+todo list --all-projects               # tasks from every project, sorted by due then priority
+todo list -A --today                   # short form of --all-projects
+todo list -A --overdue --json          # great for LLM "show me everything urgent"
 
-# Other task commands
-todo show <id>                         # full details: name, status, due, tags, description, notes, created
-todo done <id>                         # mark done
-todo rm <id>                           # delete
+# Filters compose
+todo list --today --tag work
+todo list --overdue --tag urgent
+todo list --project personal --week
+```
+
+### View / edit one task
+
+```bash
+todo show <id>                         # full details (or --json for structured)
+todo show <id> --project personal      # if not in default project
+
 todo edit <id> --name "New name"
 todo edit <id> --due 2026-05-20
+todo edit <id> --due "tomorrow 6pm"    # natural date + time
 todo edit <id> --due clear             # remove due date
 todo edit <id> --tag work --tag urgent # replaces existing tags
 todo edit <id> --tag clear             # clear all tags
-todo edit <id> --description "Updated context"
-todo edit <id> --description clear     # remove description
+todo edit <id> --description "..."     # or 'clear'
+todo edit <id> --status hold           # any of: todo, in-progress, done, hold, cancelled
+todo edit <id> --priority 1            # move to top of priority order (1-indexed)
+todo edit <id> --priority 3            # move to position 3
+todo notes <id>                        # open $EDITOR for multi-line notes
+```
 
-# Projects
-todo projects show                     # all projects with task counts + default marker
+### Task state changes
+
+```bash
+todo done <id>                         # mark done (sets status=done, stamps done_at)
+todo reopen <id>                       # undo done — sets status=todo, clears done_at
+todo rm <id>                           # delete
+todo move <id> --to personal           # move between projects
+```
+
+### Projects
+
+```bash
+todo projects show                     # list all with counts + default marker
+todo projects show work                # single project full details
+todo projects show --json              # structured output
+
 todo projects create <name>
-todo projects delete <name>            # refuses to delete the default project
-todo use <name>                        # set default project
+todo projects delete <name>            # refuses to delete default
+todo projects edit <name> --description "Day job" --status in-progress --tag office
+todo projects edit <name> --due 2026-12-31 --tag clear
 
-# Config
+todo use <name>                        # set default project
+```
+
+### Google Calendar sync
+
+```bash
+todo sync setup                        # one-time interactive wizard
+todo sync now                          # manual refresh of the ICS file
+todo sync now --to /custom/path.ics    # one-off export to custom path
+todo sync disable                      # stop auto-sync
+```
+
+Sync is one-way (todo-bytes is the source of truth). After setup, every task save auto-updates the ICS file. Subscribers (Google Calendar / Apple Calendar) poll the URL every few hours.
+
+### Config
+
+```bash
 todo config show
 todo config set data_dir <path>
 todo config set default_project <name>
 todo config set ui_port <number>
+```
 
-# Web UI (only if you want to show the user a visual view)
+### Web UI (only when the user explicitly wants to see it)
+
+```bash
 todo ui                                # opens browser
-todo ui --port 8888 --no-browser       # custom port, don't auto-open
+todo ui --port 8888 --no-browser       # custom port, no browser
 ```
 
 ## Date formats accepted by `--due`
 
+Bare dates (no time) become **end-of-day** (23:59:59):
+
 - `today`, `tomorrow`
 - Weekday names: `monday`, `tue`, `wednesday`, `thu`, …
 - ISO date: `2026-05-20`
-- ISO datetime: `2026-05-20T18:30`
-- `clear` (only on `edit`) to remove the due date
 
-Bare dates default to **end of day** (23:59:59), so `--due 2026-05-20` means "by end of that day".
+Date + time forms (any of these):
+
+- `"today 6pm"`, `"today 18:00"`
+- `"tomorrow 9am"`, `"tomorrow 09:30"`
+- `"monday 9am"`, `"fri 17:00"`
+- `"2026-05-10 6pm"`, `"2026-05-10 18:30"`
+- ISO datetime: `2026-05-20T18:30`
+
+AM/PM and 24h forms both work. `12am` is midnight, `12pm` is noon.
+
+`clear` (on `edit` only) removes the due date.
 
 ## Task statuses
 
@@ -109,115 +173,160 @@ Bare dates default to **end of day** (23:59:59), so `--due 2026-05-20` means "by
 - `hold` — paused / blocked
 - `cancelled` — abandoned
 
-`todo done <id>` sets status to `done` and stamps `done_at`. Status changes between others (e.g. `todo` ↔ `in-progress` ↔ `hold`) are done via `todo edit <id>` (and the value is set via the web UI, since CLI doesn't expose `--status` directly today).
+Change status via:
+- `todo done <id>` (shortcut for status=done, stamps done_at)
+- `todo reopen <id>` (shortcut for status=todo, clears done_at)
+- `todo edit <id> --status hold` (any of the 5 values)
 
-## Task fields the agent should know
+Status changes automatically sync `done_at`: going to `done` sets it to now; any other status clears it.
 
-| Field | Meaning | How it's set |
+## Task fields
+
+| Field | Meaning | How to set it |
 |---|---|---|
-| `id` | Per-project integer (each project counts from 1) | Auto |
+| `id` | Per-project integer (each project starts from 1) | Auto |
 | `name` | What the task is | `--name` on add/edit |
-| `priority` | Position in the project (lower = top) | Auto on add; reorder via UI drag |
-| `status` | `todo` / `in-progress` / `done` / `hold` / `cancelled` | `todo done`; UI status dropdown |
-| `due` | Due datetime, end-of-day default | `--due` |
+| `priority` | Position in priority order (1 = top) | Auto on add; `todo edit --priority N` to move; UI drag |
+| `status` | `todo` / `in-progress` / `done` / `hold` / `cancelled` | `todo edit --status` / `done` / `reopen` |
+| `due` | Due datetime, end-of-day default | `--due` (see date formats above) |
 | `tags` | List of strings | `--tag` (repeatable) |
-| `project` | Parent project (read-only, auto-set) | Inherited from `--project` |
+| `project` | Parent project (read-only here) | Set via `--project` on add, or `todo move` |
 | `description` | Short summary / context | `--description` |
-| `notes` | Longer free-form text (multi-line, bullets typed manually with `- `) | UI only for now |
+| `notes` | Multi-line free-form text | `todo notes <id>` opens $EDITOR |
 | `created` | When task was created | Auto |
-| `done_at` | When task was completed | Auto on `todo done` |
+| `done_at` | When task was completed | Auto (synced with status) |
 
 ## Common agent flows
 
 **"What's on my plate today?"**
 ```bash
-todo list --today
+todo list --today                      # default project only
+todo list -A --today --json            # across all projects, structured
 ```
-For all projects: loop over `todo projects show` projects and run `todo list --today --project <name>`, or just open the UI's "All Projects" view.
 
-**"Add 'Review pricing doc' for tomorrow with tag work"**
+**"What's overdue right now?"**
 ```bash
-todo add "Review pricing doc" --due tomorrow --tag work
+todo list -A --overdue --json
 ```
-(Goes to default project unless `--project` is specified.)
 
-**"Show me everything overdue"**
+**"Add 'Standup prep' for tomorrow at 9am tagged work"**
 ```bash
-todo list --overdue
+todo add "Standup prep" --due "tomorrow 9am" --tag work
 ```
 
 **"Mark task 5 done"**
 ```bash
 todo done 5
+# Non-default project:
+todo done 5 --project personal
 ```
-If the task is in a non-default project: `todo done 5 --project <name>`.
 
-**"What projects do I have?"**
+**"I marked 5 done by mistake, undo it"**
 ```bash
-todo projects show
+todo reopen 5
 ```
-Returns project names with open / done / total counts and a `★` marker on the default.
+
+**"Put 5 on hold, I'm blocked"**
+```bash
+todo edit 5 --status hold
+```
+
+**"Move task 5 to the personal project"**
+```bash
+todo move 5 --to personal
+```
+
+**"Make task 5 the top priority"**
+```bash
+todo edit 5 --priority 1
+```
+
+**"What projects do I have? How am I tracking on 'work'?"**
+```bash
+todo projects show                     # all projects overview
+todo projects show work --json         # full details for one project
+```
 
 **"Plan my day" (review)**
-1. `todo list --overdue` — what's slipping
-2. `todo list --today` — what's due
+1. `todo list -A --overdue --json` — what's slipping across everything
+2. `todo list -A --today --json` — what's due today
 3. `todo list --no-due` — uncommitted work that could be promoted
-4. Suggest a focused list of 3-5 items to do today
+4. Suggest a focused list of 3-5 items
 
-## Output format notes
+**"Sync my tasks to Google Calendar"**
+```bash
+todo sync setup
+```
+Interactive wizard — walks the user through file path, sharing on Drive, and Google Calendar subscribe. After that, auto-sync runs on every task save.
 
-The CLI uses Rich for formatted output (tables, colors). The output is human-readable but parseable for an agent:
+## Output format
 
-- `todo list` → table with columns `id`, `name`, `due`, `tags`, `priority`, `status`
-- `todo show <id>` → key-value table
-- `todo projects show` → table with `name`, `open`, `done`, `total`, default marker
-- Errors: red, prefixed with `[red]✗[/red]` (Rich tag in source; renders as colored text)
-- Successes: green, prefixed with `✓`
+The CLI uses Rich tables by default (good for humans). For agent / programmatic use, **always prefer `--json`** when supported:
 
-When the agent needs structured data, it can parse the table output. There is no `--json` flag yet (deferred — see roadmap).
+```bash
+todo list --json
+todo show <id> --json
+todo projects show --json
+todo projects show <name> --json
+```
 
-### Agent tip — terminal width
+JSON output is clean, structured, and round-trips through the YAML store.
 
-Rich auto-sizes tables to the terminal. In a non-TTY agent shell (e.g. running `todo` via a Bash tool), it falls back to a narrow default (~80 cols), which wraps long task names across multiple rows and looks truncated.
+`--json` is supported on: `list`, `show`, `projects show`.
+Not yet on: `add`, `edit`, `done`, `reopen`, `move` (these print short success lines).
 
-**Always prefix `todo list` / `todo show` with `COLUMNS=200`** when running from an agent:
+### Agent tip — terminal width (only for non-JSON output)
+
+When parsing Rich tables, run with `COLUMNS=200` (or higher) so long task names don't wrap:
 
 ```bash
 COLUMNS=200 todo list --all
 COLUMNS=200 todo show 3
 ```
 
-Bump higher (e.g. `COLUMNS=240`) if task names are very long.
+But if you're parsing programmatically, just use `--json` and skip this.
 
 ## Where data lives
 
-- **Config:** `~/.config/todo-bytes/config.yaml` — points at data dir, default project, UI port
-- **Data:** the user-chosen data dir (see `todo config show`). One YAML file per project (e.g. `work.yaml`, `personal.yaml`).
+- **Config:** `~/.config/todo-bytes/config.yaml` — data dir, default project, UI port, optional `ics_export_path`
+- **Data:** the user-chosen data dir (see `todo config show`). One YAML file per project (e.g. `work.yaml`, `personal.yaml`)
+- **ICS feed (if sync set up):** wherever the user configured (typically inside Google Drive folder)
 
 The agent should never edit YAML files directly. Use the CLI — it preserves schema versioning and atomic writes.
 
 ## Multi-project model
 
-- Each project has its own YAML file with metadata (name, description, status, due, tags) + a `tasks:` list.
-- Task IDs are **per-project** (each project counts from 1 independently).
-- `task.project` is auto-set to the parent project — the agent doesn't pick it directly. To "move a task between projects" — not supported yet (see roadmap).
+- Each project has its own YAML file with metadata (name, description, status, due, tags) + a `tasks:` list
+- Task IDs are **per-project** (each project counts from 1 independently)
+- `task.project` is auto-set; use `todo move <id> --to <other>` to change it
+- `--all-projects` / `-A` on `todo list` is the cross-project view
 
 ## Default project
 
-If `--project / -p` is omitted, the configured default project is used. Check it with `todo config show` or set with `todo use <name>`.
+If `--project` / `-p` is omitted, the configured default project is used. Check with `todo config show` or change with `todo use <name>`.
+
+## What this skill covers
+
+- ✅ Task CRUD (add / list / show / edit / done / reopen / rm)
+- ✅ Status changes (todo / in-progress / done / hold / cancelled)
+- ✅ Priority via `--priority N` or UI drag
+- ✅ Move tasks between projects
+- ✅ Project CRUD (create / show / edit / delete)
+- ✅ Multi-line notes via `todo notes` ($EDITOR)
+- ✅ Google Calendar / Apple Calendar sync (one-way ICS feed)
+- ✅ JSON output for structured parsing
 
 ## What this skill does NOT cover
 
-- Shared/team task lists — todo-bytes is single-user local
-- Recurring tasks — not in v1
-- Sub-tasks / dependencies — not in v1
-- Calendar sync — not in v1
-
-If the user asks for any of these, say it's not supported and offer the closest workaround (e.g. for recurring tasks: a tag like `recurring` + a manual recreate after `todo done`).
+- Shared/team task lists — single-user local tool
+- Recurring tasks — workaround: use a tag like `recurring` and recreate after `todo done`
+- Sub-tasks / dependencies — not supported
+- Two-way Google Tasks sync — only one-way ICS subscription is supported
 
 ## Errors the agent should handle gracefully
 
 - `Project '<name>' not found` → suggest `todo projects show` to see real project names
 - `Task <id> not found in <project>` → suggest `todo list` to list current ids
 - `Cannot delete '<name>' — it is the default project` → suggest `todo use <other>` first
-- `<file> declares schema_version=N, but this build only understands up to M` → user needs to upgrade todo-bytes (`pipx install --force ...`)
+- `Source and target projects must differ` (on move) → the user already has the task there
+- `<file> declares schema_version=N, but this build only understands up to M` → user needs to upgrade: `uv tool install --force 'todo-bytes[ui] @ git+https://github.com/rishitamrakar/todo-bytes.git'`
