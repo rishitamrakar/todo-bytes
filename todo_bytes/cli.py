@@ -26,6 +26,7 @@ Tasks (operate on the default project):
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
 from datetime import date, datetime
 from pathlib import Path
@@ -49,7 +50,7 @@ from todo_bytes.config import (
     update_config,
 )
 from todo_bytes.dates import parse_due
-from todo_bytes.models import END_OF_DAY, STATUS_DONE, Task
+from todo_bytes.models import END_OF_DAY, STATUS_DONE, Task, VALID_STATUSES
 from todo_bytes import ics, views
 from todo_bytes.store import (
     CURRENT_SCHEMA_VERSION,
@@ -63,10 +64,14 @@ from todo_bytes.store import (
     delete_project,
     delete_task,
     find_task,
+    move_task,
     project_exists,
     project_summary,
     load_tasks,
     mark_done,
+    reopen_task,
+    set_task_priority,
+    update_project,
     update_task,
 )
 
@@ -224,14 +229,39 @@ def _load_config_or_exit() -> Config:
 # ---------- project management commands ----------
 
 @projects_app.command("show")
-def projects_show_cmd():
-    """Show all projects with their task counts."""
+def projects_show_cmd(
+    name: Optional[str] = typer.Argument(
+        None,
+        help="Optional project name. If given, show full details for that project; "
+             "otherwise list all projects.",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Output structured JSON instead of a table."),
+):
+    """Show all projects, or full details of a single project."""
     config = _load_config_or_exit()
+    if name is not None:
+        _show_single_project(name, config, as_json)
+        return
     names = all_projects(config)
+    if as_json:
+        payload = [project_summary(n, config=config) for n in names]
+        _print_json({"projects": payload, "default": config.default_project})
+        return
     if not names:
         console.print("[dim]No projects yet. Create one with [cyan]todo projects create <name>[/cyan][/dim]")
         return
     console.print(_render_projects_table(names, config))
+
+
+def _show_single_project(name: str, config: Config, as_json: bool) -> None:
+    try:
+        summary = project_summary(name, config=config)
+    except ProjectNotFoundError as err:
+        _exit_with_error(str(err))
+    if as_json:
+        _print_json(summary)
+        return
+    console.print(_render_project_details(summary, config))
 
 
 @projects_app.command("create")
@@ -243,6 +273,62 @@ def projects_create_cmd(name: str = typer.Argument(..., help="Name of the new pr
     except ProjectAlreadyExistsError as err:
         _exit_with_error(str(err))
     console.print(f"[green]✓[/green] Created project [bold]{name}[/bold]")
+
+
+@projects_app.command("edit")
+def projects_edit_cmd(
+    name: str = typer.Argument(..., help="Name of the project to edit."),
+    description: Optional[str] = typer.Option(
+        None, "--description", help="Short description. Use 'clear' to remove."
+    ),
+    status: Optional[str] = typer.Option(
+        None, "--status", "-s", help="todo, in-progress, done, hold, cancelled"
+    ),
+    due: Optional[str] = typer.Option(
+        None,
+        "--due",
+        "-d",
+        help="today, tomorrow 6pm, weekday, YYYY-MM-DD, or 'clear'",
+    ),
+    tag: Optional[list[str]] = typer.Option(
+        None, "--tag", "-t", help="Replaces existing tags. Use 'clear' to remove all."
+    ),
+):
+    """Edit a project's metadata (description, status, due, tags)."""
+    config = _load_config_or_exit()
+    _validate_status_or_exit(status)
+    fields = _build_project_edit_fields(
+        description=description, status=status, due=due, tag=tag
+    )
+    if not fields:
+        _exit_with_error(
+            "Nothing to edit. Pass --description, --status, --due, or --tag."
+        )
+    try:
+        update_project(name, config=config, **fields)
+    except ProjectNotFoundError as err:
+        _exit_with_error(str(err))
+    except KeyError as err:
+        _exit_with_error(str(err))
+    console.print(f"[green]✓[/green] Updated project [bold]{name}[/bold]")
+
+
+def _build_project_edit_fields(
+    description: Optional[str],
+    status: Optional[str],
+    due: Optional[str],
+    tag: Optional[list[str]],
+) -> dict:
+    fields: dict = {}
+    if description is not None:
+        fields["description"] = None if description.lower() == "clear" else description
+    if status is not None:
+        fields["status"] = status
+    if due is not None:
+        fields["due"] = None if due.lower() == "clear" else _parse_due_or_exit(due)
+    if tag is not None:
+        fields["tags"] = [] if tag == ["clear"] else list(tag)
+    return fields
 
 
 @projects_app.command("delete")
@@ -571,6 +657,12 @@ def add_cmd(
 @app.command("list")
 def list_cmd(
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Which project to show. Defaults to the configured default project."),
+    all_projects_flag: bool = typer.Option(
+        False,
+        "--all-projects",
+        "-A",
+        help="Show tasks from every project (ignores --project).",
+    ),
     today: bool = typer.Option(False, "--today", help="Open tasks due today."),
     overdue: bool = typer.Option(False, "--overdue", help="Open tasks past due."),
     tomorrow: bool = typer.Option(False, "--tomorrow", help="Open tasks due tomorrow."),
@@ -580,12 +672,10 @@ def list_cmd(
     done: bool = typer.Option(False, "--done", help="Tasks done in the last 7 days."),
     all_tasks: bool = typer.Option(False, "--all", help="All tasks (open + done) in this project."),
     tag: Optional[list[str]] = typer.Option(None, "--tag", "-t", help="Only tasks with this tag (repeatable for AND match)."),
+    as_json: bool = typer.Option(False, "--json", help="Output structured JSON instead of a table."),
 ):
     """Show tasks. Without filter flags, shows all open tasks."""
     config = _load_config_or_exit()
-    target_project = _resolve_project(project, config)
-    tasks = _load_tasks_or_exit(target_project, config)
-
     view_flags = {
         "today": today, "overdue": overdue, "tomorrow": tomorrow,
         "week": week, "next-week": next_week, "no-due": no_due,
@@ -593,10 +683,23 @@ def list_cmd(
     }
     view_name = _pick_view_or_exit(view_flags)
 
+    if all_projects_flag:
+        _list_across_all_projects(config, view_name, tag, as_json)
+        return
+
+    target_project = _resolve_project(project, config)
+    tasks = _load_tasks_or_exit(target_project, config)
     filtered = _apply_view(tasks, view_name)
     filtered = views.filter_by_tag(filtered, tag or [])
     sorted_tasks = _sort_for_view(filtered, view_name)
 
+    if as_json:
+        _print_json({
+            "project": target_project,
+            "view": view_name,
+            "tasks": [t.to_dict() for t in sorted_tasks],
+        })
+        return
     if not sorted_tasks:
         console.print(_empty_view_message(view_name, target_project))
         return
@@ -607,6 +710,7 @@ def list_cmd(
 def show_cmd(
     task_id: int = typer.Argument(..., help="Task id."),
     project: Optional[str] = typer.Option(None, "--project", "-p"),
+    as_json: bool = typer.Option(False, "--json", help="Output structured JSON instead of a table."),
 ):
     """Show full details of a single task."""
     config = _load_config_or_exit()
@@ -616,6 +720,9 @@ def show_cmd(
         task = find_task(tasks, task_id)
     except TaskNotFoundError as err:
         _exit_with_error(str(err))
+    if as_json:
+        _print_json(task.to_dict())
+        return
     console.print(_render_task_details(task))
 
 
@@ -632,6 +739,46 @@ def done_cmd(
     except (ProjectNotFoundError, TaskNotFoundError) as err:
         _exit_with_error(str(err))
     console.print(f"[green]✓[/green] Done: [bold]#{task.id}[/bold] {task.name}")
+
+
+@app.command("reopen")
+def reopen_cmd(
+    task_id: int = typer.Argument(..., help="Task id to reopen."),
+    project: Optional[str] = typer.Option(None, "--project", "-p"),
+):
+    """Reopen a done/cancelled task back to 'todo'."""
+    config = _load_config_or_exit()
+    target_project = _resolve_project(project, config)
+    try:
+        task = reopen_task(target_project, task_id, config=config)
+    except (ProjectNotFoundError, TaskNotFoundError) as err:
+        _exit_with_error(str(err))
+    console.print(f"[green]↻[/green] Reopened [bold]#{task.id}[/bold] {task.name}")
+
+
+@app.command("move")
+def move_cmd(
+    task_id: int = typer.Argument(..., help="Task id to move."),
+    to: str = typer.Option(..., "--to", "-t", help="Target project name."),
+    project: Optional[str] = typer.Option(None, "--project", "-p", help="Source project. Defaults to the configured default project."),
+):
+    """Move a task from one project to another.
+
+    The task keeps its name, due, tags, status, etc. but gets a new id and
+    priority in the target project (appended at the bottom).
+    """
+    config = _load_config_or_exit()
+    source_project = _resolve_project(project, config)
+    try:
+        moved = move_task(source_project, task_id, to, config=config)
+    except (ProjectNotFoundError, TaskNotFoundError) as err:
+        _exit_with_error(str(err))
+    except ValueError as err:
+        _exit_with_error(str(err))
+    console.print(
+        f"[green]➜[/green] Moved [bold]{moved.name}[/bold] to "
+        f"[cyan]{to}[/cyan] as [bold]#{moved.id}[/bold]"
+    )
 
 
 @app.command("rm")
@@ -653,24 +800,90 @@ def rm_cmd(
 def edit_cmd(
     task_id: int = typer.Argument(..., help="Task id to edit."),
     name: Optional[str] = typer.Option(None, "--name", "-n"),
-    due: Optional[str] = typer.Option(None, "--due", "-d", help="today, tomorrow, weekday, YYYY-MM-DD, YYYY-MM-DDTHH:MM, or 'clear' to remove"),
+    due: Optional[str] = typer.Option(None, "--due", "-d", help="today, tomorrow 6pm, monday 9am, YYYY-MM-DD, YYYY-MM-DDTHH:MM, or 'clear'"),
     tag: Optional[list[str]] = typer.Option(None, "--tag", "-t", help="Replaces existing tags. Use 'clear' to remove all."),
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Which project the task lives in. Defaults to the configured default project."),
     description: Optional[str] = typer.Option(None, "--description", help="Short description. Use 'clear' to remove."),
+    status: Optional[str] = typer.Option(None, "--status", "-s", help="todo, in-progress, done, hold, cancelled"),
+    priority: Optional[int] = typer.Option(None, "--priority", help="Move to this 1-indexed position (1 = top)."),
 ):
     """Edit fields on an existing task."""
     config = _load_config_or_exit()
     target_project = _resolve_project(project, config)
-    fields = _build_edit_fields(name=name, due=due, tag=tag, description=description)
-    if not fields:
-        _exit_with_error("Nothing to edit. Pass --name, --due, --tag, or --description.")
+    _validate_status_or_exit(status)
+    fields = _build_edit_fields(
+        name=name, due=due, tag=tag, description=description, status=status
+    )
+    if not fields and priority is None:
+        _exit_with_error(
+            "Nothing to edit. Pass --name, --due, --tag, --description, --status, or --priority."
+        )
     try:
-        task = update_task(target_project, task_id, config=config, **fields)
+        task = _apply_edits(target_project, task_id, fields, priority, config)
     except (ProjectNotFoundError, TaskNotFoundError) as err:
         _exit_with_error(str(err))
     except KeyError as err:
         _exit_with_error(str(err))
     console.print(f"[green]✓[/green] Updated [bold]#{task.id}[/bold]")
+
+
+@app.command("notes")
+def notes_cmd(
+    task_id: int = typer.Argument(..., help="Task id to edit notes for."),
+    project: Optional[str] = typer.Option(None, "--project", "-p"),
+):
+    """Open $EDITOR to edit a task's notes (multi-line).
+
+    Closing the editor without saving leaves notes unchanged. Saving an
+    empty file clears the notes.
+    """
+    config = _load_config_or_exit()
+    target_project = _resolve_project(project, config)
+    task = _load_task_or_exit(target_project, task_id, config)
+    current = task.notes or ""
+    edited = typer.edit(current, extension=".md")
+    if edited is None:
+        console.print("[dim]No changes (editor closed without saving).[/dim]")
+        return
+    new_notes = edited.rstrip("\n")
+    if new_notes == current:
+        console.print("[dim]No changes.[/dim]")
+        return
+    update_task(target_project, task_id, config=config, notes=new_notes or None)
+    console.print(f"[green]✓[/green] Updated notes for [bold]#{task_id}[/bold]")
+
+
+def _load_task_or_exit(project_name: str, task_id: int, config: Config) -> Task:
+    try:
+        tasks = load_tasks(project_name, config)
+        return find_task(tasks, task_id)
+    except (ProjectNotFoundError, TaskNotFoundError) as err:
+        _exit_with_error(str(err))
+
+
+def _validate_status_or_exit(status: Optional[str]) -> None:
+    if status is not None and status not in VALID_STATUSES:
+        _exit_with_error(
+            f"Invalid status: {status!r}. Pick one of: {', '.join(sorted(VALID_STATUSES))}"
+        )
+
+
+def _apply_edits(
+    project: str,
+    task_id: int,
+    fields: dict,
+    priority: Optional[int],
+    config: Config,
+) -> Task:
+    """Apply field updates and (optionally) a priority change. Both go to
+    different store functions so we run them in turn and return the latest
+    state of the task."""
+    task = None
+    if fields:
+        task = update_task(project, task_id, config=config, **fields)
+    if priority is not None:
+        task = set_task_priority(project, task_id, priority, config=config)
+    return task
 
 
 # ---------- task command helpers ----------
@@ -787,6 +1000,7 @@ def _build_edit_fields(
     due: Optional[str],
     tag: Optional[list[str]],
     description: Optional[str] = None,
+    status: Optional[str] = None,
 ) -> dict:
     """Build the kwargs dict for update_task from CLI options.
 
@@ -801,6 +1015,8 @@ def _build_edit_fields(
         fields["tags"] = [] if tag == ["clear"] else list(tag)
     if description is not None:
         fields["description"] = None if description.lower() == "clear" else description
+    if status is not None:
+        fields["status"] = status
     return fields
 
 
@@ -817,6 +1033,71 @@ VIEW_TITLES = {
     "done": "Done (last 7 days)",
     "all": "All tasks",
 }
+
+
+def _list_across_all_projects(
+    config: Config,
+    view_name: str,
+    tag: Optional[list[str]],
+    as_json: bool,
+) -> None:
+    """Gather tasks from every project, apply the same view/tag filters, and
+    render as one combined list. Useful for 'what's on my plate today across
+    all my projects' style queries (and for LLMs asking the same thing)."""
+    names = all_projects(config)
+    combined: list[Task] = []
+    for name in names:
+        try:
+            project_tasks = load_tasks(name, config)
+        except ProjectNotFoundError:
+            continue  # vanished between listing and loading; ignore
+        filtered = _apply_view(project_tasks, view_name)
+        filtered = views.filter_by_tag(filtered, tag or [])
+        combined.extend(filtered)
+    # Sort by due date then priority — most useful order for a cross-project
+    # 'what's coming up' read.
+    combined.sort(key=lambda t: (t.due or datetime.max, t.priority))
+    if as_json:
+        _print_json({
+            "project": "__all__",
+            "view": view_name,
+            "tasks": [t.to_dict() for t in combined],
+        })
+        return
+    if not combined:
+        console.print("[dim]No matching tasks across any project.[/dim]")
+        return
+    console.print(_render_tasks_table(combined, "All projects", view_name))
+
+
+def _render_project_details(summary: dict, config: Config) -> Table:
+    """Render full project details (description / status / due / tags /
+    counts / completion %) as a key-value table."""
+    name = summary["name"]
+    is_default = " (default ★)" if name == config.default_project else ""
+    table = Table(title=f"Project: {name}{is_default}", title_style="bold", show_header=False)
+    table.add_column("Field", style="dim")
+    table.add_column("Value")
+    table.add_row("Description", summary.get("description") or "—")
+    table.add_row("Status", summary.get("status") or "todo")
+    table.add_row("Due", _format_due(summary.get("due")))
+    tags = summary.get("tags") or []
+    table.add_row("Tags", ", ".join(tags) if tags else "—")
+    table.add_row("Open", str(summary["open"]))
+    table.add_row("Done", str(summary["done"]))
+    table.add_row("Total", str(summary["total"]))
+    table.add_row("Completion", f"{summary['completion_pct']}%")
+    return table
+
+
+def _print_json(payload) -> None:
+    """Print a payload as JSON to stdout. Used by `--json` flags.
+
+    datetime / date / Path values aren't natively JSON-serialisable; we
+    `default=str` them which produces ISO format strings — the same format
+    our YAML store uses, so round-trips are clean.
+    """
+    print(json.dumps(payload, default=str, indent=2))
 
 
 def _render_tasks_table(tasks: list[Task], project_name: str, view_name: str = "open") -> Table:

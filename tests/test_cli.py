@@ -642,3 +642,255 @@ def test_skill_install_refuses_without_yes_when_target_exists(
     result = runner.invoke(app, ["skill", "install", "--dir", str(target_parent)], input="\n")
     assert result.exit_code == 1
     assert "Aborted" in result.stdout
+
+
+# ---------- reopen / status / priority / move / projects edit ----------
+
+import json
+
+from todo_bytes.models import STATUS_HOLD, STATUS_IN_PROGRESS
+
+
+def test_reopen_clears_done_status_and_done_at(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["add", "Reopen me"])
+    runner.invoke(app, ["done", "1"])
+    # Confirm it went to done first
+    tasks = store.load_tasks("work")
+    assert tasks[0].status == STATUS_DONE
+    assert tasks[0].done_at is not None
+
+    result = runner.invoke(app, ["reopen", "1"])
+    assert result.exit_code == 0, result.stdout
+    tasks = store.load_tasks("work")
+    assert tasks[0].status == STATUS_OPEN
+    assert tasks[0].done_at is None
+
+
+def test_reopen_unknown_task_errors(ready_to_use: Path, runner: CliRunner):
+    result = runner.invoke(app, ["reopen", "999"])
+    assert result.exit_code != 0
+    assert "not found" in result.stdout.lower()
+
+
+def test_edit_status_changes_status_and_clears_done_at(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["add", "Pause this"])
+    runner.invoke(app, ["done", "1"])
+    # Now edit status to hold — done_at should clear automatically.
+    result = runner.invoke(app, ["edit", "1", "--status", "hold"])
+    assert result.exit_code == 0, result.stdout
+    task = store.load_tasks("work")[0]
+    assert task.status == STATUS_HOLD
+    assert task.done_at is None
+
+
+def test_edit_status_to_done_sets_done_at(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["add", "Finish via edit"])
+    result = runner.invoke(app, ["edit", "1", "--status", "done"])
+    assert result.exit_code == 0
+    task = store.load_tasks("work")[0]
+    assert task.status == STATUS_DONE
+    assert task.done_at is not None
+
+
+def test_edit_rejects_invalid_status(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["add", "Whatever"])
+    result = runner.invoke(app, ["edit", "1", "--status", "bogus"])
+    assert result.exit_code != 0
+    assert "invalid status" in result.stdout.lower()
+
+
+def test_edit_priority_moves_task_to_top(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["add", "a"])
+    runner.invoke(app, ["add", "b"])
+    runner.invoke(app, ["add", "c"])
+    # c is currently last; move it to top (position 1)
+    result = runner.invoke(app, ["edit", "3", "--priority", "1"])
+    assert result.exit_code == 0, result.stdout
+    tasks = sorted(store.load_tasks("work"), key=lambda t: t.priority)
+    assert [t.name for t in tasks] == ["c", "a", "b"]
+
+
+def test_edit_priority_clamps_to_valid_range(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["add", "a"])
+    runner.invoke(app, ["add", "b"])
+    # Position 99 should clamp to last
+    result = runner.invoke(app, ["edit", "1", "--priority", "99"])
+    assert result.exit_code == 0
+    tasks = sorted(store.load_tasks("work"), key=lambda t: t.priority)
+    assert [t.name for t in tasks] == ["b", "a"]
+
+
+def test_edit_with_no_options_errors(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["add", "Plain"])
+    result = runner.invoke(app, ["edit", "1"])
+    assert result.exit_code != 0
+    assert "nothing to edit" in result.stdout.lower()
+
+
+def test_move_task_between_projects(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["projects", "create", "personal"])
+    runner.invoke(app, ["add", "Move me"])
+    result = runner.invoke(app, ["move", "1", "--to", "personal"])
+    assert result.exit_code == 0, result.stdout
+    # Gone from source
+    assert store.load_tasks("work") == []
+    # Arrived in target with a fresh id
+    target_tasks = store.load_tasks("personal")
+    assert len(target_tasks) == 1
+    assert target_tasks[0].name == "Move me"
+    assert target_tasks[0].project == "personal"
+
+
+def test_move_to_same_project_errors(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["add", "Stay put"])
+    result = runner.invoke(app, ["move", "1", "--to", "work"])
+    assert result.exit_code != 0
+    assert "differ" in result.stdout.lower() or "same" in result.stdout.lower()
+
+
+def test_move_to_unknown_project_errors(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["add", "x"])
+    result = runner.invoke(app, ["move", "1", "--to", "nope"])
+    assert result.exit_code != 0
+
+
+def test_projects_edit_updates_description_status_due_tags(ready_to_use: Path, runner: CliRunner):
+    result = runner.invoke(
+        app,
+        [
+            "projects", "edit", "work",
+            "--description", "Day job",
+            "--status", "in-progress",
+            "--due", "2026-12-31",
+            "--tag", "office",
+            "--tag", "finn",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    summary = store.project_summary("work")
+    assert summary["description"] == "Day job"
+    assert summary["status"] == STATUS_IN_PROGRESS
+    assert "office" in summary["tags"] and "finn" in summary["tags"]
+
+
+def test_projects_edit_clear_description(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["projects", "edit", "work", "--description", "text"])
+    result = runner.invoke(app, ["projects", "edit", "work", "--description", "clear"])
+    assert result.exit_code == 0
+    assert store.project_summary("work")["description"] is None
+
+
+def test_projects_edit_no_options_errors(ready_to_use: Path, runner: CliRunner):
+    result = runner.invoke(app, ["projects", "edit", "work"])
+    assert result.exit_code != 0
+    assert "nothing to edit" in result.stdout.lower()
+
+
+def test_projects_edit_unknown_project_errors(ready_to_use: Path, runner: CliRunner):
+    result = runner.invoke(app, ["projects", "edit", "nope", "--description", "x"])
+    assert result.exit_code != 0
+
+
+# ---------- --json output ----------
+
+def test_list_json_returns_structured_payload(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["add", "First", "--due", "2026-06-01"])
+    runner.invoke(app, ["add", "Second"])
+    result = runner.invoke(app, ["list", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["project"] == "work"
+    assert payload["view"] == "open"
+    assert len(payload["tasks"]) == 2
+    names = {t["name"] for t in payload["tasks"]}
+    assert names == {"First", "Second"}
+
+
+def test_show_json_returns_single_task(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["add", "detail check"])
+    result = runner.invoke(app, ["show", "1", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["id"] == 1
+    assert payload["name"] == "detail check"
+
+
+def test_projects_show_json_includes_default_marker(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["projects", "create", "side"])
+    result = runner.invoke(app, ["projects", "show", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["default"] == "work"
+    names = {p["name"] for p in payload["projects"]}
+    assert names == {"work", "side"}
+
+
+# ---------- projects show <name> single project detail ----------
+
+def test_projects_show_single_renders_details(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, [
+        "projects", "edit", "work",
+        "--description", "Day job",
+        "--status", "in-progress",
+    ])
+    result = runner.invoke(app, ["projects", "show", "work"])
+    assert result.exit_code == 0
+    assert "Day job" in result.stdout
+    assert "in-progress" in result.stdout
+
+
+def test_projects_show_single_json_returns_full_summary(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["projects", "edit", "work", "--description", "Day job"])
+    runner.invoke(app, ["add", "one"])
+    runner.invoke(app, ["add", "two"])
+    runner.invoke(app, ["done", "1"])
+    result = runner.invoke(app, ["projects", "show", "work", "--json"])
+    assert result.exit_code == 0
+    summary = json.loads(result.stdout)
+    assert summary["name"] == "work"
+    assert summary["description"] == "Day job"
+    assert summary["open"] == 1
+    assert summary["done"] == 1
+    assert summary["completion_pct"] == 50
+
+
+def test_projects_show_unknown_errors(ready_to_use: Path, runner: CliRunner):
+    result = runner.invoke(app, ["projects", "show", "nope"])
+    assert result.exit_code != 0
+    assert "not found" in result.stdout.lower()
+
+
+# ---------- list --all-projects ----------
+
+def test_list_all_projects_combines_tasks(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["projects", "create", "personal"])
+    runner.invoke(app, ["add", "work task", "--project", "work"])
+    runner.invoke(app, ["add", "home task", "--project", "personal"])
+    result = runner.invoke(app, ["list", "--all-projects", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["project"] == "__all__"
+    names = {t["name"] for t in payload["tasks"]}
+    assert names == {"work task", "home task"}
+
+
+def test_list_all_projects_respects_view_filter(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["projects", "create", "personal"])
+    runner.invoke(app, ["add", "due today", "--due", "today", "--project", "work"])
+    runner.invoke(app, ["add", "due next month", "--due", "2027-06-01", "--project", "personal"])
+    result = runner.invoke(app, ["list", "--all-projects", "--today", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    names = [t["name"] for t in payload["tasks"]]
+    assert names == ["due today"]
+
+
+def test_list_all_projects_short_flag(ready_to_use: Path, runner: CliRunner):
+    runner.invoke(app, ["projects", "create", "personal"])
+    runner.invoke(app, ["add", "a", "--project", "work"])
+    runner.invoke(app, ["add", "b", "--project", "personal"])
+    # -A is the short form of --all-projects
+    result = runner.invoke(app, ["list", "-A", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert len(payload["tasks"]) == 2

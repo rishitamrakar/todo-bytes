@@ -80,3 +80,47 @@ def test_garbage_raises():
 def test_bad_iso_raises():
     with pytest.raises(ValueError):
         parse_due("2026-13-01")  # invalid month
+
+
+# ---------- friendlier date+time combos ----------
+
+def test_today_with_pm_time():
+    today = date(2026, 5, 6)
+    assert parse_due("today 6pm", today=today) == datetime(2026, 5, 6, 18, 0)
+
+
+def test_today_with_am_time():
+    today = date(2026, 5, 6)
+    assert parse_due("today 9am", today=today) == datetime(2026, 5, 6, 9, 0)
+
+
+def test_tomorrow_with_24h_time():
+    today = date(2026, 5, 6)
+    assert parse_due("tomorrow 18:00", today=today) == datetime(2026, 5, 7, 18, 0)
+
+
+def test_weekday_with_time():
+    today = date(2026, 5, 6)  # Wednesday
+    # Next Friday = 2026-05-08, at 9:30am
+    assert parse_due("friday 9:30am", today=today) == datetime(2026, 5, 8, 9, 30)
+
+
+def test_iso_date_with_pm_time():
+    assert parse_due("2026-05-10 6pm") == datetime(2026, 5, 10, 18, 0)
+
+
+def test_12pm_is_noon():
+    today = date(2026, 5, 6)
+    assert parse_due("today 12pm", today=today) == datetime(2026, 5, 6, 12, 0)
+
+
+def test_12am_is_midnight():
+    today = date(2026, 5, 6)
+    assert parse_due("today 12am", today=today) == datetime(2026, 5, 6, 0, 0)
+
+
+def test_invalid_time_falls_back_to_date_only_or_raises():
+    # '99pm' isn't a valid time and isn't a valid bare time word, so the
+    # whole thing should fail to parse (rather than silently dropping the time).
+    with pytest.raises(ValueError):
+        parse_due("today 99pm")

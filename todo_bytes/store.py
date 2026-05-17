@@ -241,11 +241,28 @@ def add_task(
 
 
 def update_task(project_name: str, task_id: int, config: Config | None = None, **fields) -> Task:
+    """Update fields on a task.
+
+    If `status` is in `fields`, done_at is auto-managed so callers never have
+    to think about keeping it in sync: going to done sets done_at to now
+    (unless explicitly passed), going off done clears it.
+    """
+    _sync_done_at_with_status(fields)
     tasks = load_tasks(project_name, config)
     task = find_task(tasks, task_id)
     _apply_field_updates(task, fields)
     save_tasks(project_name, tasks, config)
     return task
+
+
+def _sync_done_at_with_status(fields: dict) -> None:
+    """Keep done_at in sync with status when a status change is requested."""
+    if "status" not in fields:
+        return
+    if fields["status"] == STATUS_DONE:
+        fields.setdefault("done_at", datetime.now())
+    else:
+        fields["done_at"] = None
 
 
 def delete_task(project_name: str, task_id: int, config: Config | None = None) -> None:
@@ -271,6 +288,60 @@ def reopen_task(project_name: str, task_id: int, config: Config | None = None) -
     task.done_at = None
     save_tasks(project_name, tasks, config)
     return task
+
+
+def reorder_tasks(
+    project_name: str,
+    ordered_ids: list[int],
+    config: Config | None = None,
+) -> list[Task]:
+    """Reassign priorities from the position in `ordered_ids` (1-indexed).
+
+    Tasks not in `ordered_ids` keep their existing priority. Returns the
+    project's task list with the new priorities applied.
+    """
+    tasks = load_tasks(project_name, config)
+    id_to_priority = {tid: i + 1 for i, tid in enumerate(ordered_ids)}
+    for task in tasks:
+        if task.id in id_to_priority:
+            task.priority = id_to_priority[task.id]
+    save_tasks(project_name, tasks, config)
+    return tasks
+
+
+def set_task_priority(
+    project_name: str,
+    task_id: int,
+    position: int,
+    config: Config | None = None,
+) -> Task:
+    """Move a task to a specific 1-indexed position in the priority order.
+
+    Other tasks shift around to keep priorities contiguous. Position is
+    clamped to [1, len(tasks)].
+    """
+    tasks = load_tasks(project_name, config)
+    find_task(tasks, task_id)  # raises if not found
+    ordered = sorted(tasks, key=lambda t: t.priority)
+    ordered_ids = [t.id for t in ordered if t.id != task_id]
+    insert_at = max(0, min(position - 1, len(ordered_ids)))
+    ordered_ids.insert(insert_at, task_id)
+    return _apply_priorities_and_return(project_name, tasks, ordered_ids, task_id, config)
+
+
+def _apply_priorities_and_return(
+    project_name: str,
+    tasks: list[Task],
+    ordered_ids: list[int],
+    target_id: int,
+    config: Config | None,
+) -> Task:
+    id_to_priority = {tid: i + 1 for i, tid in enumerate(ordered_ids)}
+    for t in tasks:
+        if t.id in id_to_priority:
+            t.priority = id_to_priority[t.id]
+    save_tasks(project_name, tasks, config)
+    return next(t for t in tasks if t.id == target_id)
 
 
 def move_task(
