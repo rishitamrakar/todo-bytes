@@ -102,6 +102,60 @@ def version():
     console.print(f"todo-bytes {__version__}")
 
 
+UPGRADE_PACKAGE_SPEC = (
+    "todo-bytes[ui,mcp] @ git+https://github.com/rishitamrakar/todo-bytes.git"
+)
+
+
+@app.command()
+def upgrade(
+    branch: Optional[str] = typer.Option(
+        None,
+        "--branch",
+        "-b",
+        help="Install from a specific branch instead of main (e.g. 'add-on-features').",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Print the upgrade command without running it."
+    ),
+):
+    """Upgrade todo-bytes to the latest from GitHub.
+
+    Wraps `uv tool install --force ...` so you don't have to remember the
+    full package URL. Installs the [ui] and [mcp] extras so the web UI and
+    Claude Code MCP server both stay in sync with the CLI.
+    """
+    cmd = _build_upgrade_cmd(branch)
+    if dry_run:
+        # markup=False so Rich doesn't try to interpret '[ui,mcp]' as a style tag.
+        console.print("[dim]Would run:[/dim] ", end="")
+        console.print(" ".join(cmd), markup=False, highlight=False)
+        return
+    _run_upgrade(cmd)
+
+
+def _build_upgrade_cmd(branch: Optional[str]) -> list[str]:
+    spec = UPGRADE_PACKAGE_SPEC
+    if branch:
+        spec += f"@{branch}"
+    return ["uv", "tool", "install", "--force", spec]
+
+
+def _run_upgrade(cmd: list[str]) -> None:
+    import subprocess
+    console.print("[dim]Running:[/dim] ", end="")
+    console.print(" ".join(cmd), markup=False, highlight=False)
+    try:
+        result = subprocess.run(cmd, check=False)
+    except FileNotFoundError:
+        _exit_with_error(
+            "Couldn't find `uv`. Install it first: https://github.com/astral-sh/uv"
+        )
+    if result.returncode != 0:
+        _exit_with_error(f"Upgrade failed (exit code {result.returncode}). See output above.")
+    console.print(f"[green]✓[/green] Upgraded to latest. Run [cyan]todo version[/cyan] to confirm.")
+
+
 # ---------- init ----------
 
 @app.command()

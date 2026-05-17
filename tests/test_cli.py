@@ -36,6 +36,34 @@ def test_version_command(runner: CliRunner):
     assert __version__ in result.stdout
 
 
+# ---------- todo upgrade ----------
+
+def test_upgrade_dry_run_prints_command(runner: CliRunner):
+    result = runner.invoke(app, ["upgrade", "--dry-run"])
+    assert result.exit_code == 0
+    assert "uv tool install --force" in result.stdout
+    assert "todo-bytes" in result.stdout
+    assert "github.com" in result.stdout
+
+
+def test_upgrade_dry_run_with_branch(runner: CliRunner):
+    result = runner.invoke(app, ["upgrade", "--branch", "add-on-features", "--dry-run"])
+    assert result.exit_code == 0
+    assert "@add-on-features" in result.stdout
+
+
+def test_upgrade_handles_missing_uv(runner: CliRunner, monkeypatch):
+    """If uv isn't installed, we should print a friendly install hint instead of crashing."""
+    import subprocess
+    def fake_run(cmd, **kwargs):
+        raise FileNotFoundError("uv")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = runner.invoke(app, ["upgrade"])
+    assert result.exit_code != 0
+    assert "uv" in result.stdout.lower()
+    assert "astral-sh/uv" in result.stdout or "install it" in result.stdout.lower()
+
+
 def test_init_creates_data_dir_project_file_and_config(fake_home: Path, runner: CliRunner):
     data_dir = fake_home / "tasks"
     result = runner.invoke(
