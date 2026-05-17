@@ -35,16 +35,21 @@ ui = [
     "fastapi>=0.110.0",
     "uvicorn>=0.27.0",
 ]
+mcp = [
+    "mcp>=1.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.0",
     "fastapi>=0.110.0",
     "uvicorn>=0.27.0",
     "httpx>=0.27.0",
+    "mcp>=1.0",
 ]
 
 [project.scripts]
 todo = "todo_bytes.cli:app"
+todo-bytes-mcp = "todo_bytes.mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/rishibytes/todo-bytes"

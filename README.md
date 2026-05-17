@@ -60,6 +60,17 @@ todo skill install              # installs to ~/.agents/skills/todo-bytes/
 
 Your agent can now manage tasks for you using the `todo` CLI.
 
+## Use with Claude Code (MCP)
+
+```bash
+uv tool install --force 'todo-bytes[mcp] @ git+https://github.com/rishitamrakar/todo-bytes.git'
+claude mcp add todo-bytes -- todo-bytes-mcp
+```
+
+Claude Code now has native tools for tasks: `add_task`, `list_tasks`, `mark_done`, `reopen_task`, `update_task`, `delete_task`, `move_task`, `list_projects`, `project_summary`, `show_task`.
+
+Mechanically: the MCP server is a thin shim that invokes the `todo` CLI under the hood. Same code path Pi uses — if a CLI command works in your terminal, it works for Claude too.
+
 ## Sync to Google Calendar
 
 ```bash
