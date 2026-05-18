@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "todo-bytes"
-version = "1.1.0"
+version = "1.2.0"
 description = "Minimal todo app — tasks live in a YAML file, manage via CLI or a tiny browser UI."
 readme = "README.md"
 requires-python = ">=3.11"
